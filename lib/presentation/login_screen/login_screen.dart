@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/app_export.dart';
+import '../../../core/services/supabase_service.dart';
 
 /// Login Screen for BrickMonitor Pro
 /// Provides secure authentication for factory personnel with industrial-grade security
@@ -28,25 +30,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberUsername = true;
   String? _errorMessage;
 
-  // Mock credentials for demonstration
-  final Map<String, Map<String, dynamic>> _mockUsers = {
-    'manager@factory.com': {
-      'password': 'Manager@123',
-      'role': 'Factory Manager',
-      'firstLogin': false,
-    },
-    'supervisor@factory.com': {
-      'password': 'Super@123',
-      'role': 'Supervisor',
-      'firstLogin': true,
-    },
-    'engineer@factory.com': {
-      'password': 'Engineer@123',
-      'role': 'Plant Engineer',
-      'firstLogin': false,
-    },
-  };
-
   @override
   void initState() {
     super.initState();
@@ -66,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
     await Future.delayed(const Duration(milliseconds: 100));
     if (_rememberUsername) {
       setState(() {
-        _usernameController.text = 'manager@factory.com';
+        _usernameController.text = 'manager';
       });
     }
   }
@@ -75,9 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _validateUsername(String? value) {
     if (value == null || value.isEmpty) {
       return 'Username is required';
-    }
-    if (!value.contains('@') || !value.contains('.')) {
-      return 'Please enter a valid email address';
     }
     return null;
   }
@@ -93,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  /// Handle login authentication
+  /// Handle login authentication using Supabase
   Future<void> _handleLogin() async {
     // Clear previous error
     setState(() {
@@ -113,44 +93,28 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // Simulate network delay
-      await Future.delayed(const Duration(seconds: 2));
-
       final username = _usernameController.text.trim();
       final password = _passwordController.text;
 
-      // Check credentials
-      if (_mockUsers.containsKey(username)) {
-        final user = _mockUsers[username]!;
-        if (user['password'] == password) {
-          // Success - trigger haptic feedback
-          HapticFeedback.mediumImpact();
+      // Authenticate against users table
+      final supabaseService = SupabaseService();
+      final userRecord = await supabaseService.loginWithUsersTable(username, password);
 
-          // Check if first login
-          if (user['firstLogin'] == true) {
-            // Show mandatory password change modal
-            await _showPasswordChangeModal(username, user['role'] as String);
-          } else {
-            // Navigate to dashboard
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, '/dashboard-screen');
-            }
-          }
-        } else {
-          setState(() {
-            _errorMessage = 'Invalid password. Please try again.';
-          });
-          HapticFeedback.heavyImpact();
-        }
+      // If user must change password, show modal
+      final mustChange = (userRecord['must_change_password'] ?? false) as bool;
+      final userId = (userRecord['id'] ?? userRecord['user_id'] ?? userRecord['uid'] ?? userRecord['user'])?.toString() ?? '';
+      final role = (userRecord['role'] ?? 'user').toString();
+
+      HapticFeedback.mediumImpact();
+
+      if (mustChange) {
+        await _showPasswordChangeModal(userId, role);
       } else {
-        setState(() {
-          _errorMessage = 'User not found. Please check your username.';
-        });
-        HapticFeedback.heavyImpact();
+        if (mounted) Navigator.pushReplacementNamed(context, '/dashboard-screen');
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Network error. Please check your connection.';
+        _errorMessage = e is Exception ? e.toString().replaceFirst('Exception: ', '') : 'Login failed';
       });
       HapticFeedback.heavyImpact();
     } finally {
@@ -163,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   /// Show mandatory password change modal for first-time users
-  Future<void> _showPasswordChangeModal(String username, String role) async {
+  Future<void> _showPasswordChangeModal(String userId, String role) async {
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
     bool isNewPasswordVisible = false;
@@ -304,7 +268,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 final newPassword = newPasswordController.text;
                 final confirmPassword = confirmPasswordController.text;
 
@@ -338,10 +302,21 @@ class _LoginScreenState extends State<LoginScreen> {
                   return;
                 }
 
-                // Success
-                HapticFeedback.mediumImpact();
-                Navigator.pop(context);
-                Navigator.pushReplacementNamed(context, '/dashboard-screen');
+                // Attempt to update password in users table
+                try {
+                  final supabaseService = SupabaseService();
+                  await supabaseService.changeUserPassword(userId, newPassword);
+                  HapticFeedback.mediumImpact();
+                  Navigator.pop(context);
+                  Navigator.pushReplacementNamed(context, '/dashboard-screen');
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to change password: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
               child: const Text('Change Password'),
             ),
@@ -578,8 +553,8 @@ class _LoginScreenState extends State<LoginScreen> {
             enabled: !_isLoading,
             validator: _validateUsername,
             decoration: InputDecoration(
-              labelText: 'Username / Email',
-              hintText: 'Enter your username',
+                    labelText: 'Username',
+                    hintText: 'Enter your username',
               prefixIcon: Padding(
                 padding: EdgeInsets.all(3.w),
                 child: CustomIconWidget(

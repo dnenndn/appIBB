@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../core/services/supabase_service.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import './widgets/connection_status_indicator.dart';
@@ -27,10 +28,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeMockData();
+    _loadMachinesFromSupabase();
     _startRealTimeUpdates();
   }
 
+  /// Load machines from Supabase database
+  Future<void> _loadMachinesFromSupabase() async {
+    try {
+      final supabaseService = SupabaseService();
+      final machinesData = await supabaseService.getAllMachines();
+      
+      setState(() {
+        _machines = List<Map<String, dynamic>>.from(machinesData);
+      });
+      
+      _sortMachinesByPriority();
+    } catch (e) {
+      print('Error loading machines: $e');
+      // Fallback to mock data if Supabase fails
+      _initializeMockData();
+    }
+  }
+
+  /// Initialize mock data (fallback for development/offline mode)
   void _initializeMockData() {
     _machines = [
       {

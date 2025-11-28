@@ -3,10 +3,18 @@ import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
 import '../core/app_export.dart';
+import '../core/config/supabase_config.dart';
+import '../core/services/supabase_service.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase
+  await SupabaseService().initialize(
+    supabaseUrl: SupabaseConfig.supabaseUrl,
+    supabaseAnonKey: SupabaseConfig.supabaseAnonKey,
+  );
 
   bool _hasShownError = false;
 
