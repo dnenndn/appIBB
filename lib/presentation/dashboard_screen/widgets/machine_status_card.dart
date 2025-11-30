@@ -47,8 +47,8 @@ class MachineStatusCard extends StatelessWidget {
     final statusColor = _getStatusColor(status);
     final machineName = machineData['name'] as String? ?? 'Unknown Machine';
     final machineType = machineData['type'] as String? ?? 'machine';
-    final production = machineData['production'] as double? ?? 0.0;
-    final temperature = machineData['temperature'] as double? ?? 0.0;
+    final production = (machineData['production'] as num?)?.toDouble() ?? 0.0;
+    final temperature = (machineData['temperature'] as num?)?.toDouble() ?? 0.0;
     final downtime = machineData['downtime'] as int? ?? 0;
 
     return GestureDetector(

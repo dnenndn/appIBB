@@ -21,6 +21,14 @@ class SupabaseService {
 
   SupabaseService._internal();
 
+  // Realtime subscription stream for machines table
+  Stream<List<Map<String, dynamic>>> getMachinesStream() {
+    return supabase
+        .from('machines')
+        .stream(primaryKey: ['id'])
+        .map((list) => list.cast<Map<String, dynamic>>().toList());
+  }
+
   /// Initialize Supabase connection
   /// Call this in main.dart during app startup
   Future<void> initialize({
@@ -64,7 +72,7 @@ class SupabaseService {
           .select()
           .eq('username', username)
           .maybeSingle();
-
+      print('******** response: $response');
       if (response == null) {
         throw Exception('User not found');
       }
@@ -125,10 +133,12 @@ class SupabaseService {
   /// Fetch all machines with current status
   Future<List<Map<String, dynamic>>> getAllMachines() async {
     try {
+      print('******** heeeeerrrreee');
       final response = await supabase
           .from('machines')
           .select()
           .order('priority', ascending: true);
+          print('********Machines data: $response');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       throw Exception('Failed to fetch machines: $e');
