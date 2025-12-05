@@ -72,7 +72,6 @@ class SupabaseService {
           .select()
           .eq('username', username)
           .maybeSingle();
-      print('******** response: $response');
       if (response == null) {
         throw Exception('User not found');
       }
@@ -133,12 +132,10 @@ class SupabaseService {
   /// Fetch all machines with current status
   Future<List<Map<String, dynamic>>> getAllMachines() async {
     try {
-      print('******** heeeeerrrreee');
       final response = await supabase
           .from('machines')
           .select()
           .order('priority', ascending: true);
-          print('********Machines data: $response');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       throw Exception('Failed to fetch machines: $e');
@@ -160,13 +157,140 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getMachineParameters(
       String machineId) async {
     try {
-      final response = await supabase
+      print('Supabase: Attempting to fetch machine parameters for machine ID: $machineId');
+      
+      // First, try to fetch without the join to see if rows exist
+      final simpleResponse = await supabase
           .from('machine_parameters')
-          .select('*, parameters(*)')
+          .select()
           .eq('machine_id', machineId);
+      print('Supabase: Found ${simpleResponse.length} rows in machine_parameters for machine $machineId');
+      
+      if (simpleResponse.isEmpty) {
+        print('Supabase: No rows found for machine_id: $machineId');
+        print('Supabase: Checking if table is accessible and what machine_ids exist...');
+        
+        // Try to fetch all rows to check if table is accessible
+        try {
+          final allRows = await supabase.from('machine_parameters').select('machine_id').limit(10);
+          print('Supabase: Table is accessible. Found ${allRows.length} total rows (sample)');
+          
+          if (allRows.isEmpty) {
+            print('');
+            print('⚠️  RLS POLICY ISSUE DETECTED ⚠️');
+            print('The table is accessible but returns 0 rows even without filters.');
+            print('This usually means Row Level Security (RLS) is blocking access.');
+            print('');
+            print('SOLUTION: Run the RLS setup script in Supabase SQL Editor:');
+            print('  1. Open Supabase Dashboard → SQL Editor');
+            print('  2. Run: SUPABASE_RLS_POLICIES_SETUP.sql');
+            print('  3. See RLS_FIX_GUIDE.md for detailed instructions');
+            print('');
+          } else {
+            final uniqueMachineIds = allRows.map((r) => r['machine_id']).toSet();
+            print('Supabase: Sample machine_ids in table: $uniqueMachineIds');
+            print('Supabase: Looking for machine_id: "$machineId" (type: ${machineId.runtimeType})');
+            print('Supabase: Case-sensitive match: ${uniqueMachineIds.contains(machineId)}');
+            
+            if (!uniqueMachineIds.contains(machineId)) {
+              print('⚠️  Machine ID mismatch detected!');
+              print('The machine_id "$machineId" does not exist in the table.');
+              print('Available machine_ids: $uniqueMachineIds');
+            }
+          }
+        } catch (e) {
+          print('Supabase: Error accessing machine_parameters table: $e');
+          print('This might indicate a permission or connection issue.');
+        }
+        
+        return [];
+      }
+      
+      // Now try with the join - but handle cases where foreign key might not be set up
+      print('Supabase: Attempting to fetch with parameters join...');
+      List<Map<String, dynamic>> response;
+      
+      try {
+        // Try the foreign key join syntax
+        response = await supabase
+            .from('machine_parameters')
+            .select('*, parameters(*)')
+            .eq('machine_id', machineId);
+        print('Supabase: Successfully fetched ${response.length} machine parameters with join');
+        
+        // Check if ALL parameters are null (foreign key relationship might not be set up)
+        final allNullParameters = response.isNotEmpty && response.every((r) => r['parameters'] == null);
+        if (allNullParameters) {
+          print('Supabase: All parameters are null in join result, foreign key relationship may not be configured');
+          print('Supabase: Using manual join fallback to fetch parameters separately');
+          throw Exception('All parameters null in join - using fallback');
+        } else if (response.any((r) => r['parameters'] == null)) {
+          print('Supabase: Warning - some parameters are null in join result');
+        }
+      } catch (joinError) {
+        print('Supabase: Join failed with error: $joinError');
+        print('Supabase: This might indicate the foreign key relationship is not configured in Supabase');
+        print('Supabase: Fetching parameters separately...');
+        
+        // Fallback: fetch parameters separately and merge
+        final machineParams = await supabase
+            .from('machine_parameters')
+            .select()
+            .eq('machine_id', machineId);
+        
+        if (machineParams.isEmpty) {
+          return [];
+        }
+        
+        // Get all parameter IDs
+        final paramIds = machineParams
+            .map((mp) => mp['parameter_id'] as String)
+            .where((id) => id != null)
+            .toSet()
+            .toList();
+        
+        if (paramIds.isEmpty) {
+          return List<Map<String, dynamic>>.from(machineParams);
+        }
+        
+        // Fetch parameters - fetch all and filter in memory (simple and reliable)
+        print('Supabase: Fetching parameters for IDs: $paramIds');
+        final allParams = await supabase.from('parameters').select();
+        final parameters = allParams.where((p) => paramIds.contains(p['id'])).toList();
+        print('Supabase: Found ${parameters.length} matching parameters out of ${allParams.length} total');
+        
+        // Create a map for quick lookup
+        final paramMap = {for (var p in parameters) p['id']: p};
+        
+        // Merge the data
+        response = machineParams.map((mp) {
+          final paramId = mp['parameter_id'] as String;
+          return {
+            ...mp,
+            'parameters': paramMap[paramId],
+          };
+        }).toList();
+        
+        print('Supabase: Successfully merged ${response.length} machine parameters with manual join');
+      }
+      
+      // Log first result structure if available
+      if (response.isNotEmpty) {
+        print('Supabase: First parameter structure keys: ${response[0].keys}');
+        if (response[0].containsKey('parameters')) {
+          print('Supabase: Parameters object type: ${response[0]['parameters'].runtimeType}');
+        }
+      }
+      
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      throw Exception('Failed to fetch machine parameters: $e');
+      // Log the specific error for debugging
+      print('Supabase error in getMachineParameters for machine $machineId: $e');
+      print('Error type: ${e.runtimeType}');
+      print('Error details: ${e.toString()}');
+      
+      // Re-throw with more context
+      throw Exception('Failed to fetch machine parameters for machine $machineId: $e');
     }
   }
 
@@ -278,14 +402,62 @@ class SupabaseService {
     required DateTime endDate,
   }) async {
     try {
+      print('Supabase: Fetching shifts from ${startDate.toIso8601String().split('T')[0]} to ${endDate.toIso8601String().split('T')[0]}');
+      
+      // First, check what dates actually exist in the table
+      try {
+        final allShiftsSample = await supabase
+            .from('shifts')
+            .select('shift_date, id')
+            .order('shift_date', ascending: false)
+            .limit(10);
+        print('Supabase: Sample shifts in table (first 10):');
+        if (allShiftsSample.isNotEmpty) {
+          for (var shift in allShiftsSample) {
+            print('  - Shift ${shift['id']}: date = ${shift['shift_date']} (type: ${shift['shift_date'].runtimeType})');
+          }
+        } else {
+          print('  - No shifts found in table at all');
+        }
+      } catch (e) {
+        print('Supabase: Could not check sample shifts: $e');
+      }
+      
+      final startDateStr = startDate.toIso8601String().split('T')[0];
+      final endDateStr = endDate.toIso8601String().split('T')[0];
+      
+      print('Supabase: Querying with date range: $startDateStr to $endDateStr');
+      
       final response = await supabase
           .from('shifts')
           .select()
-          .gte('shift_date', startDate.toIso8601String().split('T')[0])
-          .lte('shift_date', endDate.toIso8601String().split('T')[0])
+          .gte('shift_date', startDateStr)
+          .lte('shift_date', endDateStr)
           .order('shift_date', ascending: false);
+      
+      print('Supabase: Successfully fetched ${response.length} shifts');
+      
+      // If no results, try without date filter to see if there's any data
+      if (response.isEmpty) {
+        print('Supabase: No shifts found in date range, checking total count...');
+        try {
+          final allShifts = await supabase.from('shifts').select('id');
+          print('Supabase: Total shifts in table: ${allShifts.length}');
+          if (allShifts.isNotEmpty) {
+            print('Supabase: Available shift dates:');
+            final dates = await supabase.from('shifts').select('shift_date').order('shift_date');
+            final uniqueDates = (dates as List).map((d) => d['shift_date']).toSet();
+            print('Supabase: Unique dates in table: $uniqueDates');
+          }
+        } catch (e) {
+          print('Supabase: Could not get total count: $e');
+        }
+      }
+      
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
+      print('Supabase: Error fetching shifts: $e');
+      print('Error type: ${e.runtimeType}');
       throw Exception('Failed to fetch shifts: $e');
     }
   }
@@ -293,6 +465,8 @@ class SupabaseService {
   /// Fetch shift details with machine metrics
   Future<Map<String, dynamic>> getShiftDetails(String shiftId) async {
     try {
+      print('Supabase: Fetching shift details for shift ID: $shiftId');
+      
       final shiftResponse = await supabase
           .from('shifts')
           .select()
@@ -304,11 +478,15 @@ class SupabaseService {
           .select()
           .eq('shift_id', shiftId);
 
+      print('Supabase: Successfully fetched shift details with ${metricsResponse.length} machine metrics');
+      
       return {
         'shift': shiftResponse,
-        'metrics': metricsResponse,
+        'metrics': List<Map<String, dynamic>>.from(metricsResponse),
       };
     } catch (e) {
+      print('Supabase: Error fetching shift details: $e');
+      print('Error type: ${e.runtimeType}');
       throw Exception('Failed to fetch shift details: $e');
     }
   }

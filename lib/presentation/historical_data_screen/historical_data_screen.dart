@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../core/repositories/data_repositories.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import '../../widgets/custom_icon_widget.dart';
@@ -29,90 +30,141 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
   String? _expandedShiftId;
   bool _isLoading = false;
   String _searchQuery = '';
+  final ShiftRepository _shiftRepository = ShiftRepository();
 
-  // Mock data for shifts
-  final List<Map<String, dynamic>> _allShifts = [
-    {
-      "id": "shift_001",
-      "date": "11/22/2025",
-      "shiftType": "Morning",
-      "duration": "8h 00m",
-      "production": "12,450 units",
-      "efficiency": "92%",
-      "alertCount": 3,
-      "status": "normal",
-      "machines": [
-        {"name": "Kiln 1", "efficiency": 94},
-        {"name": "Kiln 2", "efficiency": 90},
-        {"name": "Dryer 1", "efficiency": 92},
-      ],
-      "alertSummary": {"critical": 0, "warning": 2, "info": 1},
-    },
-    {
-      "id": "shift_002",
-      "date": "11/22/2025",
-      "shiftType": "Afternoon",
-      "duration": "8h 00m",
-      "production": "11,890 units",
-      "efficiency": "88%",
-      "alertCount": 5,
-      "status": "warning",
-      "machines": [
-        {"name": "Kiln 1", "efficiency": 89},
-        {"name": "Kiln 2", "efficiency": 87},
-        {"name": "Dryer 1", "efficiency": 88},
-      ],
-      "alertSummary": {"critical": 1, "warning": 3, "info": 1},
-    },
-    {
-      "id": "shift_003",
-      "date": "11/22/2025",
-      "shiftType": "Night",
-      "duration": "8h 00m",
-      "production": "10,230 units",
-      "efficiency": "76%",
-      "alertCount": 8,
-      "status": "critical",
-      "machines": [
-        {"name": "Kiln 1", "efficiency": 78},
-        {"name": "Kiln 2", "efficiency": 74},
-        {"name": "Dryer 1", "efficiency": 76},
-      ],
-      "alertSummary": {"critical": 3, "warning": 4, "info": 1},
-    },
-    {
-      "id": "shift_004",
-      "date": "11/21/2025",
-      "shiftType": "Morning",
-      "duration": "8h 00m",
-      "production": "12,680 units",
-      "efficiency": "94%",
-      "alertCount": 2,
-      "status": "normal",
-      "machines": [
-        {"name": "Kiln 1", "efficiency": 95},
-        {"name": "Kiln 2", "efficiency": 93},
-        {"name": "Dryer 1", "efficiency": 94},
-      ],
-      "alertSummary": {"critical": 0, "warning": 1, "info": 1},
-    },
-    {
-      "id": "shift_005",
-      "date": "11/21/2025",
-      "shiftType": "Afternoon",
-      "duration": "8h 00m",
-      "production": "12,100 units",
-      "efficiency": "90%",
-      "alertCount": 4,
-      "status": "normal",
-      "machines": [
-        {"name": "Kiln 1", "efficiency": 91},
-        {"name": "Kiln 2", "efficiency": 89},
-        {"name": "Dryer 1", "efficiency": 90},
-      ],
-      "alertSummary": {"critical": 0, "warning": 3, "info": 1},
-    },
-  ];
+  // Shifts data loaded from Supabase
+  List<Map<String, dynamic>> _allShifts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadShifts();
+  }
+
+  Future<void> _loadShifts() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('HistoricalData: Loading shifts from Supabase...');
+      final shifts = await _shiftRepository.getShifts(
+        startDate: _selectedStartDate,
+        endDate: _selectedEndDate,
+      );
+      print('HistoricalData: Loaded ${shifts.length} shifts from Supabase');
+
+      // Transform Supabase data to match UI format
+      final transformedShifts = await _transformShifts(shifts);
+      
+      if (mounted) {
+        setState(() {
+          _allShifts = transformedShifts;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('HistoricalData: Error loading shifts: $e');
+      if (mounted) {
+        setState(() {
+          _allShifts = [];
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load historical data: $e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppTheme.getStatusColor('critical'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _transformShifts(
+      List<Map<String, dynamic>> shifts) async {
+    final transformed = <Map<String, dynamic>>[];
+
+    for (final shift in shifts) {
+      try {
+        // Get shift details with machine metrics (handle errors gracefully)
+        List<dynamic> metrics = [];
+        try {
+          final shiftDetails = await _shiftRepository.getShiftDetails(shift['id'] as String);
+          metrics = shiftDetails['metrics'] as List<dynamic>? ?? [];
+        } catch (e) {
+          print('HistoricalData: Could not fetch metrics for shift ${shift['id']}: $e');
+          // Continue without metrics - we'll show empty machines array
+          metrics = [];
+        }
+
+        // Format date
+        final shiftDate = shift['shift_date'] as String? ?? '';
+        final dateFormat = DateFormat('MM/dd/yyyy');
+        DateTime? parsedDate;
+        try {
+          parsedDate = DateTime.parse(shiftDate);
+        } catch (e) {
+          parsedDate = DateTime.now();
+        }
+        final formattedDate = dateFormat.format(parsedDate);
+
+        // Format duration
+        final durationMinutes = shift['duration_minutes'] as int? ?? 480;
+        final hours = durationMinutes ~/ 60;
+        final minutes = durationMinutes % 60;
+        final duration = '${hours}h ${minutes.toString().padLeft(2, '0')}m';
+
+        // Format production
+        final production = shift['total_production'] as int? ?? 0;
+        final formattedProduction = NumberFormat('#,###').format(production) + ' units';
+
+        // Format efficiency - handle both int and double types
+        final efficiencyValue = shift['total_efficiency'];
+        final efficiency = (efficiencyValue is double) 
+            ? efficiencyValue 
+            : (efficiencyValue is int) 
+                ? efficiencyValue.toDouble() 
+                : (efficiencyValue as num?)?.toDouble() ?? 0.0;
+        final formattedEfficiency = '${efficiency.toStringAsFixed(0)}%';
+
+        // Transform machine metrics
+        final machines = metrics.map<Map<String, dynamic>>((m) {
+          return {
+            'name': m['machine_name'] as String? ?? 'Unknown',
+            'efficiency': (m['efficiency'] as num?)?.toInt() ?? 0,
+          };
+        }).toList();
+
+        // Alert summary
+        final alertSummary = {
+          'critical': shift['critical_alerts'] as int? ?? 0,
+          'warning': shift['warning_alerts'] as int? ?? 0,
+          'info': shift['info_alerts'] as int? ?? 0,
+        };
+
+        transformed.add({
+          'id': shift['id'] as String? ?? '',
+          'date': formattedDate,
+          'shiftType': shift['shift_type'] as String? ?? 'Unknown',
+          'duration': duration,
+          'production': formattedProduction,
+          'efficiency': formattedEfficiency,
+          'alertCount': shift['alert_count'] as int? ?? 0,
+          'status': shift['status'] as String? ?? 'normal',
+          'machines': machines,
+          'alertSummary': alertSummary,
+        });
+      } catch (e, stackTrace) {
+        print('HistoricalData: Error transforming shift ${shift['id']}: $e');
+        print('HistoricalData: Stack trace: $stackTrace');
+        // Skip this shift if transformation fails
+        continue;
+      }
+    }
+
+    return transformed;
+  }
 
   List<Map<String, dynamic>> get _filteredShifts {
     return _allShifts.where((shift) {
@@ -159,6 +211,8 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
         _selectedStartDate = picked.start;
         _selectedEndDate = picked.end;
       });
+      // Reload data with new date range
+      _loadShifts();
     }
   }
 
@@ -302,16 +356,8 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
   }
 
   Future<void> _refreshData() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _isLoading = false;
-    });
-
+    await _loadShifts();
+    
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -435,12 +481,16 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
           ),
           // Shift list
           Expanded(
-            child: _filteredShifts.isEmpty
-                ? const EmptyStateWidget(
-                    message: 'No Data Available',
-                    suggestion: 'Try adjusting your date range or shift filter',
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(),
                   )
-                : RefreshIndicator(
+                : _filteredShifts.isEmpty
+                    ? const EmptyStateWidget(
+                        message: 'No Data Available',
+                        suggestion: 'Try adjusting your date range or shift filter',
+                      )
+                    : RefreshIndicator(
                     onRefresh: _refreshData,
                     child: ListView.builder(
                       itemCount: _filteredShifts.length,
