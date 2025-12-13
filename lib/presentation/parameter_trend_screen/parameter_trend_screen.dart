@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../core/services/supabase_service.dart';
+import '../../core/repositories/data_repositories.dart';
 import '../../widgets/custom_app_bar.dart';
 import './widgets/export_options_dialog.dart';
 import './widgets/parameter_chart.dart';
@@ -18,54 +20,153 @@ class ParameterTrendScreen extends StatefulWidget {
 }
 
 class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
-  // Mock data for demonstration
-  final String _machineName = 'Kiln 1';
-  final String _parameterName = 'Burner Temperature';
-  final String _unit = '°C';
-  double _currentValue = 850.0;
+  String _machineName = 'Loading...';
+  String _parameterName = 'Loading...';
+  String _unit = '';
+  String? _machineId;
+  String? _parameterId;
+  double _currentValue = 0.0;
   TimeRange _selectedRange = TimeRange.twentyFourHours;
-  double _minThreshold = 750.0;
-  double _maxThreshold = 900.0;
-  final double _parameterMin = 0.0;
-  final double _parameterMax = 1200.0;
+  double _minThreshold = 0.0;
+  double _maxThreshold = 100.0;
+  double _parameterMin = 0.0;
+  double _parameterMax = 1000.0;
   List<ParameterDataPoint> _dataPoints = [];
   bool _isLoading = true;
+  String? _errorMessage;
+  bool _hasInitialized = false;
+
+  final SupabaseService _supabaseService = SupabaseService();
+  final MachineRepository _machineRepository = MachineRepository();
 
   @override
   void initState() {
     super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasInitialized) {
+      _hasInitialized = true;
+      _initializeFromArguments();
+    }
+  }
+
+  void _initializeFromArguments() {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    
+    if (args != null) {
+      _machineId = args['machineId'] as String?;
+      _machineName = args['machineName'] as String? ?? 'Unknown Machine';
+      _parameterName = args['parameterName'] as String? ?? 'Unknown Parameter';
+      final currentValueStr = args['currentValue'] as String?;
+      if (currentValueStr != null && currentValueStr != 'N/A') {
+        _currentValue = double.tryParse(currentValueStr) ?? 0.0;
+      }
+      _unit = args['unit'] as String? ?? '';
+    }
+    
     _loadData();
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-
-    // Simulate data loading
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    // Generate mock data points based on selected time range
-    final now = DateTime.now();
-    final dataPoints = <ParameterDataPoint>[];
-    final duration = _selectedRange.duration;
-    final intervalMinutes = duration.inMinutes ~/ 50;
-
-    for (int i = 0; i < 50; i++) {
-      final timestamp =
-          now.subtract(Duration(minutes: intervalMinutes * (49 - i)));
-      final baseValue = 850.0;
-      final variation = (i % 10 - 5) * 15.0;
-      final value = (baseValue + variation).clamp(_parameterMin, _parameterMax);
-      dataPoints.add(ParameterDataPoint(
-        timestamp: timestamp,
-        value: value,
-      ));
-    }
-
     setState(() {
-      _dataPoints = dataPoints;
-      _currentValue = dataPoints.last.value;
-      _isLoading = false;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      // Get machine ID if not already set from arguments
+      if (_machineId == null) {
+        final machines = await _machineRepository.getAllMachines();
+        final machine = machines.firstWhere(
+          (m) => m['name'] == _machineName,
+          orElse: () => {},
+        );
+        
+        if (machine.isEmpty || machine['id'] == null) {
+          throw Exception('Machine "$_machineName" not found');
+        }
+        
+        _machineId = machine['id'] as String;
+      }
+      
+      // Get parameter by name and machine_id
+      final parameters = await _supabaseService.getAllParameters(machineId: _machineId);
+      final parameter = parameters.firstWhere(
+        (p) => p['name'] == _parameterName,
+        orElse: () => {},
+      );
+      
+      if (parameter.isEmpty || parameter['id'] == null) {
+        throw Exception('Parameter "$_parameterName" not found for machine "$_machineName"');
+      }
+      
+      _parameterId = parameter['id'] as String;
+      
+      // Get parameter min/max values
+      _parameterMin = (parameter['min_value'] as num?)?.toDouble() ?? 0.0;
+      _parameterMax = (parameter['max_value'] as num?)?.toDouble() ?? 1000.0;
+      
+      // Update current value from parameter if available
+      final paramCurrentValue = (parameter['current_value'] as num?)?.toDouble();
+      if (paramCurrentValue != null) {
+        _currentValue = paramCurrentValue;
+      }
+      
+      // Get thresholds
+      final thresholds = await _supabaseService.getMachineThresholds(_machineId!);
+      final threshold = thresholds.firstWhere(
+        (t) => t['parameter_id'] == _parameterId,
+        orElse: () => {},
+      );
+      
+      if (threshold.isNotEmpty) {
+        _minThreshold = (threshold['min_threshold'] as num?)?.toDouble() ?? _parameterMin;
+        _maxThreshold = (threshold['max_threshold'] as num?)?.toDouble() ?? _parameterMax;
+      } else {
+        // Use parameter min/max as defaults
+        _minThreshold = _parameterMin;
+        _maxThreshold = _parameterMax;
+      }
+      
+      // Calculate time range
+      final endTime = DateTime.now();
+      final startTime = endTime.subtract(_selectedRange.duration);
+      
+      // Fetch historical data
+      final historyData = await _supabaseService.getParameterHistory(
+        machineId: _machineId!,
+        parameterName: _parameterName,
+        startTime: startTime,
+        endTime: endTime,
+      );
+      
+      // Convert to ParameterDataPoint list
+      final dataPoints = historyData.map((point) {
+        return ParameterDataPoint(
+          timestamp: DateTime.parse(point['timestamp'] as String),
+          value: (point['value'] as num).toDouble(),
+        );
+      }).toList();
+      
+      // Update current value from latest data point if available
+      if (dataPoints.isNotEmpty) {
+        _currentValue = dataPoints.last.value;
+      }
+      
+      setState(() {
+        _dataPoints = dataPoints;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading parameter trend data: $e');
+      setState(() {
+        _errorMessage = 'Failed to load data: $e';
+        _isLoading = false;
+      });
+    }
   }
 
   void _onRangeChanged(TimeRange range) {
@@ -76,11 +177,41 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
   void _onMinThresholdChanged(double value) {
     HapticFeedback.lightImpact();
     setState(() => _minThreshold = value);
+    
+    // Save threshold to Supabase in the background
+    _saveThresholdToSupabase(value, _maxThreshold);
   }
 
   void _onMaxThresholdChanged(double value) {
     HapticFeedback.lightImpact();
     setState(() => _maxThreshold = value);
+    
+    // Save threshold to Supabase in the background
+    _saveThresholdToSupabase(_minThreshold, value);
+  }
+
+  Future<void> _saveThresholdToSupabase(double minThreshold, double maxThreshold) async {
+    if (_machineId == null || _parameterId == null) return;
+    
+    try {
+      final thresholds = await _supabaseService.getMachineThresholds(_machineId!);
+      final threshold = thresholds.firstWhere(
+        (t) => t['parameter_id'] == _parameterId,
+        orElse: () => {},
+      );
+      
+      if (threshold.isNotEmpty && threshold['id'] != null) {
+        await _supabaseService.updateThreshold(
+          thresholdId: threshold['id'] as String,
+          minThreshold: minThreshold,
+          maxThreshold: maxThreshold,
+        );
+        print('Threshold updated successfully in Supabase');
+      }
+    } catch (e) {
+      print('Error updating threshold in Supabase: $e');
+      // Don't show error to user as this happens in background
+    }
   }
 
   void _showThresholdControls() {
@@ -155,6 +286,43 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
     );
   }
 
+  void _showFullscreenChart() {
+    // Only show fullscreen if we have enough data
+    if (_dataPoints.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Not enough data to display fullscreen chart',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white,
+                ),
+          ),
+          backgroundColor: AppTheme.lightTheme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _FullscreenChartScreen(
+          dataPoints: _dataPoints,
+          minThreshold: _minThreshold,
+          maxThreshold: _maxThreshold,
+          minValue: _parameterMin,
+          maxValue: _parameterMax,
+          unit: _unit,
+          parameterName: _parameterName,
+          machineName: _machineName,
+          onMinThresholdDragged: _onMinThresholdChanged,
+          onMaxThresholdDragged: _onMaxThresholdChanged,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
   Color _getStatusColor() {
     if (_currentValue < _minThreshold || _currentValue > _maxThreshold) {
       return AppTheme.lightTheme.colorScheme.error;
@@ -204,7 +372,33 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
                 ],
               ),
             )
-          : Column(
+          : _errorMessage != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: theme.colorScheme.error,
+                      ),
+                      SizedBox(height: 2.h),
+                      Text(
+                        _errorMessage!,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 2.h),
+                      ElevatedButton(
+                        onPressed: _loadData,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
               children: [
                 // Header section
                 Container(
@@ -274,28 +468,132 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
                     padding: EdgeInsets.all(4.w),
                     child: Column(
                       children: [
-                        Container(
-                          height: 50.h,
-                          padding: EdgeInsets.all(2.w),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: theme.colorScheme.outline,
-                              width: 1,
-                            ),
-                          ),
-                          child: ParameterChart(
-                            dataPoints: _dataPoints,
-                            minThreshold: _minThreshold,
-                            maxThreshold: _maxThreshold,
-                            minValue: _parameterMin,
-                            maxValue: _parameterMax,
-                            unit: _unit,
-                            onMinThresholdDragged: _onMinThresholdChanged,
-                            onMaxThresholdDragged: _onMaxThresholdChanged,
-                          ),
-                        ),
+                        // Check if we have enough data points for a meaningful trend (at least 2)
+                        _dataPoints.length < 2
+                            ? Container(
+                                height: 50.h,
+                                padding: EdgeInsets.all(4.w),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: theme.colorScheme.outline,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.show_chart,
+                                        size: 48.sp,
+                                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                                      ),
+                                      SizedBox(height: 2.h),
+                                      Text(
+                                        'Insufficient Data',
+                                        style: theme.textTheme.titleLarge?.copyWith(
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      SizedBox(height: 1.h),
+                                      Text(
+                                        _dataPoints.isEmpty
+                                            ? 'No historical data available for this parameter in the selected time range.\n\nData will appear here as it is collected.'
+                                            : 'Not enough data points to display a trend.\n\nAt least 2 data points are required.',
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      if (_dataPoints.length == 1) ...[
+                                        SizedBox(height: 2.h),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.info_outline,
+                                                size: 20.sp,
+                                                color: theme.colorScheme.primary,
+                                              ),
+                                              SizedBox(width: 2.w),
+                                              Text(
+                                                'Current value: ${_currentValue.toStringAsFixed(1)}$_unit',
+                                                style: theme.textTheme.bodyMedium?.copyWith(
+                                                  color: theme.colorScheme.primary,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : Stack(
+                                children: [
+                                  Container(
+                                    height: 50.h,
+                                    padding: EdgeInsets.all(2.w),
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.surface,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: theme.colorScheme.outline,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: ParameterChart(
+                                      dataPoints: _dataPoints,
+                                      minThreshold: _minThreshold,
+                                      maxThreshold: _maxThreshold,
+                                      minValue: _parameterMin,
+                                      maxValue: _parameterMax,
+                                      unit: _unit,
+                                      onMinThresholdDragged: _onMinThresholdChanged,
+                                      onMaxThresholdDragged: _onMaxThresholdChanged,
+                                    ),
+                                  ),
+                                  // Fullscreen button
+                                  Positioned(
+                                    top: 1.h,
+                                    right: 1.h,
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: _showFullscreenChart,
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Container(
+                                          padding: EdgeInsets.all(1.w),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.surface.withValues(alpha: 0.9),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: theme.colorScheme.outline,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.fullscreen,
+                                            size: 20.sp,
+                                            color: theme.colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                         SizedBox(height: 3.h),
 
                         // Statistics section
@@ -422,6 +720,78 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Fullscreen chart screen
+class _FullscreenChartScreen extends StatelessWidget {
+  final List<ParameterDataPoint> dataPoints;
+  final double minThreshold;
+  final double maxThreshold;
+  final double minValue;
+  final double maxValue;
+  final String unit;
+  final String parameterName;
+  final String machineName;
+  final ValueChanged<double>? onMinThresholdDragged;
+  final ValueChanged<double>? onMaxThresholdDragged;
+
+  const _FullscreenChartScreen({
+    required this.dataPoints,
+    required this.minThreshold,
+    required this.maxThreshold,
+    required this.minValue,
+    required this.maxValue,
+    required this.unit,
+    required this.parameterName,
+    required this.machineName,
+    this.onMinThresholdDragged,
+    this.onMaxThresholdDragged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              machineName,
+              style: theme.textTheme.titleMedium,
+            ),
+            Text(
+              parameterName,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(4.w),
+          child: ParameterChart(
+            dataPoints: dataPoints,
+            minThreshold: minThreshold,
+            maxThreshold: maxThreshold,
+            minValue: minValue,
+            maxValue: maxValue,
+            unit: unit,
+            onMinThresholdDragged: onMinThresholdDragged,
+            onMaxThresholdDragged: onMaxThresholdDragged,
+          ),
+        ),
       ),
     );
   }

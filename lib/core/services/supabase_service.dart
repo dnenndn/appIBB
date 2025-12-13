@@ -153,143 +153,41 @@ class SupabaseService {
     }
   }
 
-  /// Get machine parameters and current values
+  /// Get machine parameters and current values from parameters table
+  /// The parameters table now includes machine_id and current_value directly
   Future<List<Map<String, dynamic>>> getMachineParameters(
       String machineId) async {
     try {
-      print('Supabase: Attempting to fetch machine parameters for machine ID: $machineId');
+      print('Supabase: Fetching parameters for machine ID: $machineId');
       
-      // First, try to fetch without the join to see if rows exist
-      final simpleResponse = await supabase
-          .from('machine_parameters')
+      // Query parameters table directly filtered by machine_id
+      final response = await supabase
+          .from('parameters')
           .select()
-          .eq('machine_id', machineId);
-      print('Supabase: Found ${simpleResponse.length} rows in machine_parameters for machine $machineId');
+          .eq('machine_id', machineId)
+          .order('name', ascending: true);
       
-      if (simpleResponse.isEmpty) {
-        print('Supabase: No rows found for machine_id: $machineId');
-        print('Supabase: Checking if table is accessible and what machine_ids exist...');
-        
-        // Try to fetch all rows to check if table is accessible
-        try {
-          final allRows = await supabase.from('machine_parameters').select('machine_id').limit(10);
-          print('Supabase: Table is accessible. Found ${allRows.length} total rows (sample)');
-          
-          if (allRows.isEmpty) {
-            print('');
-            print('⚠️  RLS POLICY ISSUE DETECTED ⚠️');
-            print('The table is accessible but returns 0 rows even without filters.');
-            print('This usually means Row Level Security (RLS) is blocking access.');
-            print('');
-            print('SOLUTION: Run the RLS setup script in Supabase SQL Editor:');
-            print('  1. Open Supabase Dashboard → SQL Editor');
-            print('  2. Run: SUPABASE_RLS_POLICIES_SETUP.sql');
-            print('  3. See RLS_FIX_GUIDE.md for detailed instructions');
-            print('');
-          } else {
-            final uniqueMachineIds = allRows.map((r) => r['machine_id']).toSet();
-            print('Supabase: Sample machine_ids in table: $uniqueMachineIds');
-            print('Supabase: Looking for machine_id: "$machineId" (type: ${machineId.runtimeType})');
-            print('Supabase: Case-sensitive match: ${uniqueMachineIds.contains(machineId)}');
-            
-            if (!uniqueMachineIds.contains(machineId)) {
-              print('⚠️  Machine ID mismatch detected!');
-              print('The machine_id "$machineId" does not exist in the table.');
-              print('Available machine_ids: $uniqueMachineIds');
-            }
-          }
-        } catch (e) {
-          print('Supabase: Error accessing machine_parameters table: $e');
-          print('This might indicate a permission or connection issue.');
-        }
-        
-        return [];
+      print('Supabase: Found ${response.length} parameters for machine $machineId');
+      
+      // Return parameters directly (no transformation needed since structure matches)
+      // The parameters table now has all fields including machine_id and current_value
+      final transformedResponse = response.map((param) {
+        return {
+          ...param,
+          'last_updated': param['created_at'], // Use created_at as last_updated if not available
+        };
+      }).toList();
+      
+      if (transformedResponse.isNotEmpty) {
+        print('Supabase: First parameter structure keys: ${transformedResponse[0].keys}');
       }
       
-      // Now try with the join - but handle cases where foreign key might not be set up
-      print('Supabase: Attempting to fetch with parameters join...');
-      List<Map<String, dynamic>> response;
-      
-      try {
-        // Try the foreign key join syntax
-        response = await supabase
-            .from('machine_parameters')
-            .select('*, parameters(*)')
-            .eq('machine_id', machineId);
-        print('Supabase: Successfully fetched ${response.length} machine parameters with join');
-        
-        // Check if ALL parameters are null (foreign key relationship might not be set up)
-        final allNullParameters = response.isNotEmpty && response.every((r) => r['parameters'] == null);
-        if (allNullParameters) {
-          print('Supabase: All parameters are null in join result, foreign key relationship may not be configured');
-          print('Supabase: Using manual join fallback to fetch parameters separately');
-          throw Exception('All parameters null in join - using fallback');
-        } else if (response.any((r) => r['parameters'] == null)) {
-          print('Supabase: Warning - some parameters are null in join result');
-        }
-      } catch (joinError) {
-        print('Supabase: Join failed with error: $joinError');
-        print('Supabase: This might indicate the foreign key relationship is not configured in Supabase');
-        print('Supabase: Fetching parameters separately...');
-        
-        // Fallback: fetch parameters separately and merge
-        final machineParams = await supabase
-            .from('machine_parameters')
-            .select()
-            .eq('machine_id', machineId);
-        
-        if (machineParams.isEmpty) {
-          return [];
-        }
-        
-        // Get all parameter IDs
-        final paramIds = machineParams
-            .map((mp) => mp['parameter_id'] as String)
-            .where((id) => id != null)
-            .toSet()
-            .toList();
-        
-        if (paramIds.isEmpty) {
-          return List<Map<String, dynamic>>.from(machineParams);
-        }
-        
-        // Fetch parameters - fetch all and filter in memory (simple and reliable)
-        print('Supabase: Fetching parameters for IDs: $paramIds');
-        final allParams = await supabase.from('parameters').select();
-        final parameters = allParams.where((p) => paramIds.contains(p['id'])).toList();
-        print('Supabase: Found ${parameters.length} matching parameters out of ${allParams.length} total');
-        
-        // Create a map for quick lookup
-        final paramMap = {for (var p in parameters) p['id']: p};
-        
-        // Merge the data
-        response = machineParams.map((mp) {
-          final paramId = mp['parameter_id'] as String;
-          return {
-            ...mp,
-            'parameters': paramMap[paramId],
-          };
-        }).toList();
-        
-        print('Supabase: Successfully merged ${response.length} machine parameters with manual join');
-      }
-      
-      // Log first result structure if available
-      if (response.isNotEmpty) {
-        print('Supabase: First parameter structure keys: ${response[0].keys}');
-        if (response[0].containsKey('parameters')) {
-          print('Supabase: Parameters object type: ${response[0]['parameters'].runtimeType}');
-        }
-      }
-      
-      return List<Map<String, dynamic>>.from(response);
+      return List<Map<String, dynamic>>.from(transformedResponse);
     } catch (e) {
-      // Log the specific error for debugging
       print('Supabase error in getMachineParameters for machine $machineId: $e');
       print('Error type: ${e.runtimeType}');
       print('Error details: ${e.toString()}');
       
-      // Re-throw with more context
       throw Exception('Failed to fetch machine parameters for machine $machineId: $e');
     }
   }
@@ -495,10 +393,14 @@ class SupabaseService {
   // PARAMETER & THRESHOLD METHODS
   // ========================================================================
 
-  /// Fetch all parameters
-  Future<List<Map<String, dynamic>>> getAllParameters() async {
+  /// Fetch all parameters (optionally filtered by machine_id)
+  Future<List<Map<String, dynamic>>> getAllParameters({String? machineId}) async {
     try {
-      final response = await supabase.from('parameters').select();
+      var query = supabase.from('parameters').select();
+      if (machineId != null) {
+        query = query.eq('machine_id', machineId);
+      }
+      final response = await query;
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       throw Exception('Failed to fetch parameters: $e');
@@ -534,6 +436,103 @@ class SupabaseService {
       }).eq('id', thresholdId);
     } catch (e) {
       throw Exception('Failed to update threshold: $e');
+    }
+  }
+
+  /// Fetch historical parameter data for trend analysis from history_parameters table
+  Future<List<Map<String, dynamic>>> getParameterHistory({
+    required String machineId,
+    required String parameterName,
+    required DateTime startTime,
+    required DateTime endTime,
+  }) async {
+    try {
+      print('Supabase: Fetching parameter history for machine $machineId, parameter $parameterName');
+      print('Supabase: Time range: ${startTime.toIso8601String()} to ${endTime.toIso8601String()}');
+      
+      // First, get the parameter ID by name and machine_id
+      final parameterResponse = await supabase
+          .from('parameters')
+          .select()
+          .eq('name', parameterName)
+          .eq('machine_id', machineId)
+          .maybeSingle();
+      
+      if (parameterResponse == null) {
+        print('Supabase: Parameter "$parameterName" not found for machine $machineId');
+        return [];
+      }
+      
+      final parameterId = parameterResponse['id'] as String;
+      print('Supabase: Found parameter ID: $parameterId');
+      
+      // Get current value from parameters table
+      final currentValue = (parameterResponse['current_value'] as num?)?.toDouble();
+      print('Supabase: Current value: $currentValue');
+      
+      // Fetch historical data from history_parameters table
+      print('Supabase: Fetching historical data from history_parameters table');
+      final historyResponse = await supabase
+          .from('history_parameters')
+          .select()
+          .eq('parameter_id', parameterId)
+          .gte('last_updated', startTime.toIso8601String())
+          .lte('last_updated', endTime.toIso8601String())
+          .order('last_updated', ascending: true);
+      
+      final historyList = List<Map<String, dynamic>>.from(historyResponse);
+      print('Supabase: Found ${historyList.length} historical records');
+      
+      // Build data points from history_parameters
+      final dataPoints = <Map<String, dynamic>>[];
+      
+      for (var record in historyList) {
+        final value = (record['value'] as num?)?.toDouble();
+        if (value != null) {
+          // Use last_updated timestamp, fallback to created_at
+          String timestamp;
+          if (record['last_updated'] != null) {
+            timestamp = record['last_updated'] as String;
+          } else if (record['created_at'] != null) {
+            timestamp = record['created_at'] as String;
+          } else {
+            continue; // Skip records without timestamps
+          }
+          
+          dataPoints.add({
+            'timestamp': timestamp,
+            'value': value,
+          });
+        }
+      }
+      
+      print('Supabase: Added ${dataPoints.length} data points from history_parameters');
+      
+      // Add current value as the latest point if available and not already in history
+      if (currentValue != null) {
+        final nowTimestamp = DateTime.now().toIso8601String();
+        final exists = dataPoints.any((dp) => dp['timestamp'] == nowTimestamp);
+        if (!exists) {
+          dataPoints.add({
+            'timestamp': nowTimestamp,
+            'value': currentValue,
+          });
+        }
+      }
+      
+      // Sort by timestamp
+      dataPoints.sort((a, b) {
+        final aTime = DateTime.parse(a['timestamp'] as String);
+        final bTime = DateTime.parse(b['timestamp'] as String);
+        return aTime.compareTo(bTime);
+      });
+      
+      print('Supabase: Found ${dataPoints.length} real data points (no interpolated data generated)');
+      
+      return dataPoints;
+    } catch (e) {
+      print('Supabase: Error fetching parameter history: $e');
+      throw Exception('Failed to fetch parameter history: $e');
     }
   }
 

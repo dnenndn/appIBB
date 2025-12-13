@@ -109,22 +109,24 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         // Log the parameter structure for debugging
         print('Processing parameter: $param');
         
-        // Extract parameter data from the joined result
-        final paramData = param['parameters'] as Map<String, dynamic>;
-        final paramName = paramData['name'] as String;
-        final paramType = paramData['parameter_type'] as String? ?? 'general';
-        final paramUnit = paramData['unit'] as String? ?? '';
+        // Parameters table now has all fields directly (no nested 'parameters' object)
+        final paramName = param['name'] as String? ?? 'Unknown';
+        final paramType = param['parameter_type'] as String? ?? 'general';
+        final paramUnit = param['unit'] as String? ?? '';
         
-        // Get current value
+        // Get current value directly from parameters table
         final currentValue = (param['current_value'] as num?)?.toDouble();
+        
+        // Get timestamp (use created_at or last_updated if available)
+        final timestampStr = param['created_at'] as String? ?? DateTime.now().toIso8601String();
         
         // Create parameter entry
         final paramEntry = {
           "name": paramName,
           "value": currentValue != null ? currentValue.toStringAsFixed(2) : "N/A",
           "unit": paramUnit,
-          "timestamp": DateTime.parse(param['last_updated'] as String? ?? DateTime.now().toIso8601String()),
-          "status": _getParameterStatus(currentValue, paramData),
+          "timestamp": DateTime.parse(timestampStr),
+          "status": _getParameterStatus(currentValue, param),
           "trendData": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, currentValue ?? 0.0], // Simplified trend data
         };
         
@@ -221,6 +223,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       context,
       '/parameter-trend-screen',
       arguments: {
+        'machineId': _machineData['id'],
         'machineName': _machineData['name'],
         'parameterName': parameter['name'],
         'currentValue': parameter['value'],

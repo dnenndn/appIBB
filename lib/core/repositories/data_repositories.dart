@@ -10,7 +10,7 @@ class MachineRepository {
 
   /// Get all machines with fallback to mock data
   Future<List<Map<String, dynamic>>> getAllMachines({
-    bool useMockDataOnError = true,
+    bool useMockDataOnError = false,
   }) async {
     try {
       return await _supabaseService.getAllMachines();

@@ -59,6 +59,27 @@ class _ParameterChartState extends State<ParameterChart> {
     }
   }
 
+  // Calculate dynamic min/max from actual data points with padding
+  double _getDataMin() {
+    if (widget.dataPoints.isEmpty) return widget.minValue;
+    final dataMin = widget.dataPoints.map((p) => p.value).reduce((a, b) => a < b ? a : b);
+    final dataMax = widget.dataPoints.map((p) => p.value).reduce((a, b) => a > b ? a : b);
+    final range = dataMax - dataMin;
+    // Add 10% padding below minimum, or at least 5% of the range
+    final padding = range > 0 ? (range * 0.1) : (dataMin.abs() * 0.1);
+    return (dataMin - padding).clamp(widget.minValue, double.infinity);
+  }
+
+  double _getDataMax() {
+    if (widget.dataPoints.isEmpty) return widget.maxValue;
+    final dataMin = widget.dataPoints.map((p) => p.value).reduce((a, b) => a < b ? a : b);
+    final dataMax = widget.dataPoints.map((p) => p.value).reduce((a, b) => a > b ? a : b);
+    final range = dataMax - dataMin;
+    // Add 10% padding above maximum, or at least 5% of the range
+    final padding = range > 0 ? (range * 0.1) : (dataMax.abs() * 0.1);
+    return (dataMax + padding).clamp(double.negativeInfinity, widget.maxValue);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -74,6 +95,12 @@ class _ParameterChartState extends State<ParameterChart> {
       );
     }
 
+    // Calculate dynamic Y-axis range from actual data
+    final dataMin = _getDataMin();
+    final dataMax = _getDataMax();
+    final yRange = dataMax - dataMin;
+    final yInterval = yRange > 0 ? yRange / 5 : 1.0;
+
     return GestureDetector(
       onVerticalDragUpdate: (details) {
         if (_isDraggingMinThreshold || _isDraggingMaxThreshold) {
@@ -81,8 +108,9 @@ class _ParameterChartState extends State<ParameterChart> {
           final localPosition = renderBox.globalToLocal(details.globalPosition);
           final chartHeight = renderBox.size.height - 40;
           final relativeY = (chartHeight - localPosition.dy) / chartHeight;
-          final value =
-              widget.minValue + (widget.maxValue - widget.minValue) * relativeY;
+          final dataMin = _getDataMin();
+          final dataMax = _getDataMax();
+          final value = dataMin + (dataMax - dataMin) * relativeY;
 
           if (_isDraggingMinThreshold && widget.onMinThresholdDragged != null) {
             widget.onMinThresholdDragged!(value.clamp(
@@ -111,7 +139,7 @@ class _ParameterChartState extends State<ParameterChart> {
             gridData: FlGridData(
               show: true,
               drawVerticalLine: true,
-              horizontalInterval: (widget.maxValue - widget.minValue) / 5,
+              horizontalInterval: yInterval,
               verticalInterval: 1,
               getDrawingHorizontalLine: (value) {
                 return FlLine(
@@ -158,7 +186,7 @@ class _ParameterChartState extends State<ParameterChart> {
               leftTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
-                  interval: (widget.maxValue - widget.minValue) / 5,
+                  interval: yInterval,
                   reservedSize: 42,
                   getTitlesWidget: (value, meta) {
                     return Text(
@@ -178,8 +206,8 @@ class _ParameterChartState extends State<ParameterChart> {
             ),
             minX: 0,
             maxX: widget.dataPoints.length.toDouble() - 1,
-            minY: widget.minValue,
-            maxY: widget.maxValue,
+            minY: dataMin,
+            maxY: dataMax,
             lineBarsData: [
               LineChartBarData(
                 spots: widget.dataPoints.asMap().entries.map((entry) {
