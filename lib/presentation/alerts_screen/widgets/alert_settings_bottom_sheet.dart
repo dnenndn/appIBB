@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
@@ -82,7 +83,9 @@ class _AlertSettingsBottomSheetState extends State<AlertSettingsBottomSheet> {
                   IconButton(
                     onPressed: () {
                       HapticFeedback.lightImpact();
-                      Navigator.pop(context);
+                      if (Navigator.canPop(context)) {
+                        Navigator.pop(context);
+                      }
                     },
                     icon: CustomIconWidget(
                       iconName: 'close',
@@ -185,12 +188,25 @@ class _AlertSettingsBottomSheetState extends State<AlertSettingsBottomSheet> {
                       child: ElevatedButton(
                         onPressed: () {
                           HapticFeedback.mediumImpact();
-                          widget.onSave(
-                            _preferences,
-                            _soundEnabled,
-                            _vibrationEnabled,
-                          );
-                          Navigator.pop(context);
+                          // Save the values first
+                          final preferences = _preferences;
+                          final soundEnabled = _soundEnabled;
+                          final vibrationEnabled = _vibrationEnabled;
+                          
+                          // Pop the bottom sheet first
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          }
+                          
+                          // Then call onSave after the bottom sheet is closed
+                          // This prevents Navigator lock conflicts with Flushbar
+                          SchedulerBinding.instance.addPostFrameCallback((_) {
+                            widget.onSave(
+                              preferences,
+                              soundEnabled,
+                              vibrationEnabled,
+                            );
+                          });
                         },
                         style: ElevatedButton.styleFrom(
                           padding: EdgeInsets.symmetric(vertical: 2.h),

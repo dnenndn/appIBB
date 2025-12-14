@@ -17,6 +17,7 @@ class AlertCard extends StatelessWidget {
   final bool isMultiSelectMode;
   final bool isSelected;
   final VoidCallback? onLongPress;
+  final bool enableSlidable;
 
   const AlertCard({
     super.key,
@@ -29,6 +30,7 @@ class AlertCard extends StatelessWidget {
     this.isMultiSelectMode = false,
     this.isSelected = false,
     this.onLongPress,
+    this.enableSlidable = true,
   });
 
   Color _getAlertColor(String type) {
@@ -66,18 +68,7 @@ class AlertCard extends StatelessWidget {
     final bool canDismiss = alert['type'] != 'critical';
     final bool isResolved = alert['isResolved'] == true;
 
-    Widget cardContent = GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      onLongPress: () {
-        HapticFeedback.mediumImpact();
-        if (onLongPress != null) {
-          onLongPress!();
-        }
-      },
-      child: Container(
+    Widget cardContent = Container(
         margin: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
@@ -220,28 +211,6 @@ class AlertCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      // Auto-dismiss countdown
-                      if (isResolved && alert['autoDismissSeconds'] != null)
-                        Padding(
-                          padding: EdgeInsets.only(top: 1.h),
-                          child: Row(
-                            children: [
-                              CustomIconWidget(
-                                iconName: 'timer',
-                                color: const Color(0xFF00C851),
-                                size: 16,
-                              ),
-                              SizedBox(width: 1.w),
-                              Text(
-                                'Auto-dismiss in ${alert['autoDismissSeconds']}s',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: const Color(0xFF00C851),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -249,11 +218,10 @@ class AlertCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
 
-    // Wrap with Slidable for swipe actions
-    if (!isMultiSelectMode) {
+    // Wrap with Slidable for swipe actions (only for active alerts and not in multi-select mode)
+    if (!isMultiSelectMode && enableSlidable) {
       return Slidable(
         key: ValueKey(alert['id']),
         startActionPane: ActionPane(
@@ -268,16 +236,6 @@ class AlertCard extends StatelessWidget {
               foregroundColor: Colors.white,
               icon: Icons.check,
               label: 'Acknowledge',
-            ),
-            SlidableAction(
-              onPressed: (_) {
-                HapticFeedback.mediumImpact();
-                onMuteMachine();
-              },
-              backgroundColor: const Color(0xFFFF8800),
-              foregroundColor: Colors.white,
-              icon: Icons.volume_off,
-              label: 'Mute',
             ),
             SlidableAction(
               onPressed: (_) {

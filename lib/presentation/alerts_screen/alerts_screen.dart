@@ -1,9 +1,11 @@
 import 'package:another_flushbar/flushbar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../core/services/supabase_service.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import '../../widgets/custom_icon_widget.dart';
 import './widgets/alert_card.dart';
@@ -21,6 +23,9 @@ class AlertsScreen extends StatefulWidget {
 
 class _AlertsScreenState extends State<AlertsScreen>
     with SingleTickerProviderStateMixin {
+  // Tab controller for Active/History tabs
+  late TabController _tabController;
+  
   // Filter state
   String _selectedFilter = 'All';
   final List<String> _filterOptions = ['All', 'Critical', 'Warning', 'Status'];
@@ -38,87 +43,38 @@ class _AlertsScreenState extends State<AlertsScreen>
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
 
-  // Mock alerts data
-  final List<Map<String, dynamic>> _allAlerts = [
-    {
-      'id': 'alert_001',
-      'machineName': 'Kiln #1',
-      'type': 'critical',
-      'alertType': 'Temperature Exceeded',
-      'timestamp': '2 min ago',
-      'currentStatus': 'Burner temperature at 1250°C (Max: 1200°C)',
-      'isResolved': false,
-      'parameter': 'burner_temperature',
-      'machineId': 'kiln_1',
-    },
-    {
-      'id': 'alert_002',
-      'machineName': 'Dryer #2',
-      'type': 'warning',
-      'alertType': 'Low Flow Rate',
-      'timestamp': '15 min ago',
-      'currentStatus': 'Flow rate at 45 m³/h (Min: 50 m³/h)',
-      'isResolved': false,
-      'parameter': 'flow_rate',
-      'machineId': 'dryer_2',
-    },
-    {
-      'id': 'alert_003',
-      'machineName': 'Kiln #2',
-      'type': 'status',
-      'alertType': 'Machine Started',
-      'timestamp': '1 hour ago',
-      'currentStatus': 'Machine resumed operation after maintenance',
-      'isResolved': true,
-      'autoDismissSeconds': 45,
-      'parameter': 'machine_status',
-      'machineId': 'kiln_2',
-    },
-    {
-      'id': 'alert_004',
-      'machineName': 'Dryer #1',
-      'type': 'critical',
-      'alertType': 'Emergency Stop',
-      'timestamp': '3 hours ago',
-      'currentStatus': 'Machine stopped due to safety sensor trigger',
-      'isResolved': false,
-      'parameter': 'machine_status',
-      'machineId': 'dryer_1',
-    },
-    {
-      'id': 'alert_005',
-      'machineName': 'Kiln #3',
-      'type': 'warning',
-      'alertType': 'High Energy Consumption',
-      'timestamp': '5 hours ago',
-      'currentStatus': 'Energy usage at 125 kWh (Avg: 100 kWh)',
-      'isResolved': true,
-      'autoDismissSeconds': 30,
-      'parameter': 'energy_consumption',
-      'machineId': 'kiln_3',
-    },
-    {
-      'id': 'alert_006',
-      'machineName': 'Dryer #3',
-      'type': 'status',
-      'alertType': 'Maintenance Scheduled',
-      'timestamp': '1 day ago',
-      'currentStatus': 'Routine maintenance scheduled for tomorrow',
-      'isResolved': false,
-      'parameter': 'maintenance',
-      'machineId': 'dryer_3',
-    },
-  ];
+  // Supabase service
+  final SupabaseService _supabaseService = SupabaseService();
+  
+  // Alerts data from Supabase
+  List<Map<String, dynamic>> _allAlerts = [];
+  bool _isLoading = true;
+
+  // Get active alerts (not resolved)
+  List<Map<String, dynamic>> get _activeAlerts {
+    final active = _allAlerts.where((alert) => alert['isResolved'] != true).toList();
+    if (_selectedFilter == 'All') {
+      return active;
+    }
+    return active.where((alert) =>
+        (alert['type'] as String).toLowerCase() ==
+        _selectedFilter.toLowerCase()).toList();
+  }
+
+  // Get history alerts (resolved/acknowledged)
+  List<Map<String, dynamic>> get _historyAlerts {
+    final history = _allAlerts.where((alert) => alert['isResolved'] == true).toList();
+    if (_selectedFilter == 'All') {
+      return history;
+    }
+    return history.where((alert) =>
+        (alert['type'] as String).toLowerCase() ==
+        _selectedFilter.toLowerCase()).toList();
+  }
 
   List<Map<String, dynamic>> get _filteredAlerts {
-    if (_selectedFilter == 'All') {
-      return _allAlerts;
-    }
-    return _allAlerts
-        .where((alert) =>
-            (alert['type'] as String).toLowerCase() ==
-            _selectedFilter.toLowerCase())
-        .toList();
+    // Return alerts based on current tab
+    return _tabController.index == 0 ? _activeAlerts : _historyAlerts;
   }
 
   int get _unreadCount {
@@ -128,35 +84,86 @@ class _AlertsScreenState extends State<AlertsScreen>
   @override
   void initState() {
     super.initState();
-    _startAutoDismissTimers();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadAlerts();
   }
 
-  void _startAutoDismissTimers() {
-    // Simulate auto-dismiss countdown
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          for (var alert in _allAlerts) {
-            if (alert['isResolved'] == true &&
-                alert['autoDismissSeconds'] != null) {
-              final seconds = alert['autoDismissSeconds'] as int;
-              if (seconds > 0) {
-                alert['autoDismissSeconds'] = seconds - 1;
-              } else {
-                _allAlerts.remove(alert);
-                break;
-              }
-            }
-          }
-        });
-        _startAutoDismissTimers();
-      }
+  Future<void> _loadAlerts() async {
+    setState(() {
+      _isLoading = true;
     });
+
+    try {
+      // Fetch all alerts from Supabase
+      final alerts = await _supabaseService.getActiveAlerts();
+      
+      // Also fetch resolved alerts for history
+      final resolvedAlerts = await _supabaseService.getResolvedAlerts();
+      
+      final allAlertsList = List<Map<String, dynamic>>.from(alerts);
+      final resolvedList = List<Map<String, dynamic>>.from(resolvedAlerts);
+      
+      // Get machine names
+      final machines = await _supabaseService.getAllMachines();
+      final machineMap = {for (var m in machines) m['id']: m['name']};
+      
+      // Transform to match expected format
+      _allAlerts = [...allAlertsList, ...resolvedList].map((alert) {
+        final machineId = alert['machine_id'] as String;
+        return {
+          'id': alert['id'],
+          'machineName': machineMap[machineId] ?? machineId,
+          'type': alert['type'] ?? alert['severity'] ?? 'status',
+          'alertType': alert['alert_type'] ?? alert['title'] ?? 'Alert',
+          'timestamp': _formatTimestamp(alert['created_at']),
+          'currentStatus': alert['current_status'] ?? alert['description'] ?? '',
+          'isResolved': alert['is_resolved'] ?? false,
+          'parameter': alert['parameter'],
+          'machineId': machineId,
+        };
+      }).toList();
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading alerts: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatTimestamp(String? timestamp) {
+    if (timestamp == null) return 'Unknown';
+    try {
+      final dateTime = DateTime.parse(timestamp);
+      final now = DateTime.now();
+      final difference = now.difference(dateTime);
+      
+      if (difference.inMinutes < 1) {
+        return 'Just now';
+      } else if (difference.inMinutes < 60) {
+        return '${difference.inMinutes} min ago';
+      } else if (difference.inHours < 24) {
+        return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
+      } else {
+        return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+      }
+    } catch (e) {
+      return 'Unknown';
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _handleRefresh() async {
     HapticFeedback.mediumImpact();
-    await Future.delayed(const Duration(seconds: 1));
+    await _loadAlerts();
     if (mounted) {
       _showFlushbar(
         'Alerts refreshed',
@@ -166,43 +173,9 @@ class _AlertsScreenState extends State<AlertsScreen>
     }
   }
 
-  void _handleMarkAllRead() {
-    HapticFeedback.mediumImpact();
-    setState(() {
-      for (var alert in _allAlerts) {
-        if (alert['type'] != 'critical') {
-          alert['isResolved'] = true;
-          alert['autoDismissSeconds'] = 60;
-        }
-      }
-    });
-    _showFlushbar(
-      'Marked as read',
-      'Non-critical alerts marked as read',
-      const Color(0xFF00C851),
-    );
-  }
 
   void _handleAlertTap(Map<String, dynamic> alert) {
-    if (_isMultiSelectMode) {
-      setState(() {
-        if (_selectedAlerts.contains(alert['id'])) {
-          _selectedAlerts.remove(alert['id']);
-        } else {
-          _selectedAlerts.add(alert['id'] as String);
-        }
-      });
-    } else {
-      HapticFeedback.lightImpact();
-      Navigator.pushNamed(
-        context,
-        '/machine-detail-screen',
-        arguments: {
-          'machineId': alert['machineId'],
-          'highlightParameter': alert['parameter'],
-        },
-      );
-    }
+    // Cards are not clickable - do nothing
   }
 
   void _handleLongPress(Map<String, dynamic> alert) {
@@ -219,17 +192,31 @@ class _AlertsScreenState extends State<AlertsScreen>
     });
   }
 
-  void _handleAcknowledge(String alertId) {
-    setState(() {
-      final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
-      alert['isResolved'] = true;
-      alert['autoDismissSeconds'] = 60;
-    });
-    _showFlushbar(
-      'Alert acknowledged',
-      'Alert has been marked as acknowledged',
-      const Color(0xFF00C851),
-    );
+  void _handleAcknowledge(String alertId) async {
+    try {
+      // Update in Supabase first
+      await _supabaseService.resolveAlert(alertId);
+      
+      // Then update local state
+      setState(() {
+        final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
+        alert['isResolved'] = true;
+        // Alert will now appear in history tab
+      });
+      
+      _showFlushbar(
+        'Alert acknowledged',
+        'Alert has been moved to history',
+        const Color(0xFF00C851),
+      );
+    } catch (e) {
+      print('Error acknowledging alert: $e');
+      _showFlushbar(
+        'Error',
+        'Failed to acknowledge alert',
+        const Color(0xFFDC3545),
+      );
+    }
   }
 
   void _handleMuteMachine(String alertId) {
@@ -243,14 +230,20 @@ class _AlertsScreenState extends State<AlertsScreen>
 
   void _handleViewDetails(String alertId) {
     final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
-    Navigator.pushNamed(
-      context,
-      '/machine-detail-screen',
-      arguments: {
-        'machineId': alert['machineId'],
-        'highlightParameter': alert['parameter'],
-      },
-    );
+    // Use SchedulerBinding to ensure navigation happens after the current frame
+    // This prevents Navigator lock errors when called from SlidableAction
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.pushNamed(
+          context,
+          '/machine-detail-screen',
+          arguments: {
+            'machineId': alert['machineId'],
+            'highlightParameter': alert['parameter'],
+          },
+        );
+      }
+    });
   }
 
   void _handleDismiss(String alertId) {
@@ -264,20 +257,36 @@ class _AlertsScreenState extends State<AlertsScreen>
     );
   }
 
-  void _handleBulkAcknowledge() {
-    setState(() {
+  void _handleBulkAcknowledge() async {
+    try {
+      // Update all selected alerts in Supabase
       for (var alertId in _selectedAlerts) {
-        final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
-        alert['isResolved'] = true;
-        alert['autoDismissSeconds'] = 60;
+        await _supabaseService.resolveAlert(alertId);
       }
-    });
-    _exitMultiSelectMode();
-    _showFlushbar(
-      'Alerts acknowledged',
-      '${_selectedAlerts.length} alerts acknowledged',
-      const Color(0xFF00C851),
-    );
+      
+      // Then update local state
+      setState(() {
+        for (var alertId in _selectedAlerts) {
+          final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
+          alert['isResolved'] = true;
+          // Alerts will now appear in history tab
+        }
+      });
+      
+      _exitMultiSelectMode();
+      _showFlushbar(
+        'Alerts acknowledged',
+        '${_selectedAlerts.length} alerts moved to history',
+        const Color(0xFF00C851),
+      );
+    } catch (e) {
+      print('Error acknowledging alerts: $e');
+      _showFlushbar(
+        'Error',
+        'Failed to acknowledge some alerts',
+        const Color(0xFFDC3545),
+      );
+    }
   }
 
   void _handleBulkDismiss() {
@@ -353,9 +362,23 @@ class _AlertsScreenState extends State<AlertsScreen>
       appBar: _isMultiSelectMode
           ? _buildMultiSelectAppBar(theme)
           : _buildNormalAppBar(theme),
-      body: _filteredAlerts.isEmpty
-          ? _buildEmptyState(theme)
-          : _buildAlertsList(theme),
+      body: _isLoading
+          ? Center(
+              child: CircularProgressIndicator(
+                color: theme.colorScheme.primary,
+              ),
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _activeAlerts.isEmpty
+                    ? _buildEmptyStateWithFilters(theme, 'No Active Alerts', 'All alerts are resolved', _activeAlerts)
+                    : _buildAlertsList(theme, _activeAlerts, isHistory: false),
+                _historyAlerts.isEmpty
+                    ? _buildEmptyStateWithFilters(theme, 'No History', 'No acknowledged alerts yet', _historyAlerts)
+                    : _buildAlertsList(theme, _historyAlerts, isHistory: true),
+              ],
+            ),
       bottomNavigationBar: const CustomBottomBar(currentIndex: 2),
       floatingActionButton: _isMultiSelectMode
           ? null
@@ -372,10 +395,11 @@ class _AlertsScreenState extends State<AlertsScreen>
 
   PreferredSizeWidget _buildNormalAppBar(ThemeData theme) {
     return AppBar(
+      automaticallyImplyLeading: false, // Remove back arrow
       title: Row(
         children: [
           const Text('Alerts'),
-          if (_unreadCount > 0) ...[
+          if (_activeAlerts.length > 0) ...[
             SizedBox(width: 2.w),
             Container(
               padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.5.h),
@@ -384,7 +408,7 @@ class _AlertsScreenState extends State<AlertsScreen>
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                _unreadCount.toString(),
+                _activeAlerts.length.toString(),
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -394,17 +418,19 @@ class _AlertsScreenState extends State<AlertsScreen>
           ],
         ],
       ),
-      actions: [
-        IconButton(
-          onPressed: _handleMarkAllRead,
-          icon: CustomIconWidget(
-            iconName: 'done_all',
-            color: theme.colorScheme.onSurface,
-            size: 24,
-          ),
-          tooltip: 'Mark all as read',
-        ),
-      ],
+      bottom: TabBar(
+        controller: _tabController,
+        labelColor: theme.colorScheme.onPrimaryContainer,
+        unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+        indicatorColor: theme.colorScheme.primary,
+        tabs: const [
+          Tab(text: 'Active'),
+          Tab(text: 'History'),
+        ],
+        onTap: (index) {
+          setState(() {}); // Refresh to show correct alerts
+        },
+      ),
     );
   }
 
@@ -451,7 +477,7 @@ class _AlertsScreenState extends State<AlertsScreen>
     );
   }
 
-  Widget _buildAlertsList(ThemeData theme) {
+  Widget _buildAlertsList(ThemeData theme, List<Map<String, dynamic>> alerts, {bool isHistory = false}) {
     return Column(
       children: [
         // Filter chips
@@ -493,24 +519,29 @@ class _AlertsScreenState extends State<AlertsScreen>
             onRefresh: () async => _handleRefresh(),
             child: ListView.builder(
               padding: EdgeInsets.only(bottom: 2.h),
-              itemCount: _filteredAlerts.length,
+              itemCount: alerts.length,
               itemBuilder: (context, index) {
-                final alert = _filteredAlerts[index];
+                final alert = alerts[index];
+                // Apply filter
+                if (_selectedFilter != 'All' &&
+                    (alert['type'] as String).toLowerCase() !=
+                        _selectedFilter.toLowerCase()) {
+                  return const SizedBox.shrink();
+                }
                 return AlertCard(
                   alert: alert,
-                  onTap: () => _handleAlertTap(alert),
+                  onTap: () {}, // Cards not clickable
                   onAcknowledge: () =>
                       _handleAcknowledge(alert['id'] as String),
                   onMuteMachine: () =>
                       _handleMuteMachine(alert['id'] as String),
                   onViewDetails: () =>
                       _handleViewDetails(alert['id'] as String),
-                  onDismiss: alert['type'] != 'critical'
-                      ? () => _handleDismiss(alert['id'] as String)
-                      : null,
+                  onDismiss: null, // Remove dismiss functionality
                   isMultiSelectMode: _isMultiSelectMode,
                   isSelected: _selectedAlerts.contains(alert['id']),
                   onLongPress: () => _handleLongPress(alert),
+                  enableSlidable: !isHistory, // Disable slidable for history alerts
                 );
               },
             ),
@@ -520,54 +551,94 @@ class _AlertsScreenState extends State<AlertsScreen>
     );
   }
 
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: EdgeInsets.all(6.w),
-            decoration: BoxDecoration(
-              color: const Color(0xFF00C851).withValues(alpha: 0.15),
-              shape: BoxShape.circle,
-            ),
-            child: CustomIconWidget(
-              iconName: 'check_circle',
-              color: const Color(0xFF00C851),
-              size: 60,
+  Widget _buildEmptyStateWithFilters(ThemeData theme, String title, String message, List<Map<String, dynamic>> alerts) {
+    return Column(
+      children: [
+        // Filter chips - always visible
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _filterOptions.map((filter) {
+                final Color? chipColor = filter == 'Critical'
+                    ? const Color(0xFFDC3545)
+                    : filter == 'Warning'
+                        ? const Color(0xFFFF8800)
+                        : filter == 'Status'
+                            ? const Color(0xFF17A2B8)
+                            : null;
+
+                return Padding(
+                  padding: EdgeInsets.only(right: 2.w),
+                  child: AlertFilterChip(
+                    label: filter,
+                    isSelected: _selectedFilter == filter,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      setState(() {
+                        _selectedFilter = filter;
+                      });
+                    },
+                    selectedColor: chipColor,
+                  ),
+                );
+              }).toList(),
             ),
           ),
-          SizedBox(height: 3.h),
-          Text(
-            'All Clear!',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF00C851),
+        ),
+        // Empty state content
+        Expanded(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(6.w),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00C851).withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: CustomIconWidget(
+                    iconName: 'check_circle',
+                    color: const Color(0xFF00C851),
+                    size: 60,
+                  ),
+                ),
+                SizedBox(height: 3.h),
+                Text(
+                  title,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF00C851),
+                  ),
+                ),
+                SizedBox(height: 1.h),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10.w),
+                  child: Text(
+                    message,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                SizedBox(height: 3.h),
+                ElevatedButton.icon(
+                  onPressed: _handleRefresh,
+                  icon: CustomIconWidget(
+                    iconName: 'refresh',
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  label: const Text('Refresh'),
+                ),
+              ],
             ),
           ),
-          SizedBox(height: 1.h),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10.w),
-            child: Text(
-              'No active alerts. All machines are operating normally.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          SizedBox(height: 3.h),
-          ElevatedButton.icon(
-            onPressed: _handleRefresh,
-            icon: CustomIconWidget(
-              iconName: 'refresh',
-              color: Colors.white,
-              size: 20,
-            ),
-            label: const Text('Refresh'),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
