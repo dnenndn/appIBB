@@ -49,10 +49,17 @@ class _AlertsScreenState extends State<AlertsScreen>
   // Alerts data from Supabase
   List<Map<String, dynamic>> _allAlerts = [];
   bool _isLoading = true;
+  
+  // Track locally acknowledged alerts (user-specific, not stored in DB)
+  final Set<String> _locallyAcknowledgedAlerts = {};
 
-  // Get active alerts (not resolved)
+  // Get active alerts (not resolved and not locally acknowledged)
   List<Map<String, dynamic>> get _activeAlerts {
-    final active = _allAlerts.where((alert) => alert['isResolved'] != true).toList();
+    final active = _allAlerts.where((alert) {
+      final alertId = alert['id'] as String;
+      // Exclude alerts that are resolved in DB OR locally acknowledged
+      return alert['isResolved'] != true && !_locallyAcknowledgedAlerts.contains(alertId);
+    }).toList();
     if (_selectedFilter == 'All') {
       return active;
     }
@@ -61,9 +68,13 @@ class _AlertsScreenState extends State<AlertsScreen>
         _selectedFilter.toLowerCase()).toList();
   }
 
-  // Get history alerts (resolved/acknowledged)
+  // Get history alerts (resolved/acknowledged - either from DB or locally)
   List<Map<String, dynamic>> get _historyAlerts {
-    final history = _allAlerts.where((alert) => alert['isResolved'] == true).toList();
+    final history = _allAlerts.where((alert) {
+      final alertId = alert['id'] as String;
+      // Include alerts that are resolved in DB OR locally acknowledged
+      return alert['isResolved'] == true || _locallyAcknowledgedAlerts.contains(alertId);
+    }).toList();
     if (_selectedFilter == 'All') {
       return history;
     }
@@ -110,14 +121,17 @@ class _AlertsScreenState extends State<AlertsScreen>
       // Transform to match expected format
       _allAlerts = [...allAlertsList, ...resolvedList].map((alert) {
         final machineId = alert['machine_id'] as String;
+        final alertId = alert['id'] as String;
+        // Preserve local acknowledgment state if alert was locally acknowledged
+        final isLocallyAcknowledged = _locallyAcknowledgedAlerts.contains(alertId);
         return {
-          'id': alert['id'],
+          'id': alertId,
           'machineName': machineMap[machineId] ?? machineId,
           'type': alert['type'] ?? alert['severity'] ?? 'status',
           'alertType': alert['alert_type'] ?? alert['title'] ?? 'Alert',
           'timestamp': _formatTimestamp(alert['created_at']),
           'currentStatus': alert['current_status'] ?? alert['description'] ?? '',
-          'isResolved': alert['is_resolved'] ?? false,
+          'isResolved': alert['is_resolved'] ?? false || isLocallyAcknowledged,
           'parameter': alert['parameter'],
           'machineId': machineId,
         };
@@ -192,31 +206,23 @@ class _AlertsScreenState extends State<AlertsScreen>
     });
   }
 
-  void _handleAcknowledge(String alertId) async {
-    try {
-      // Update in Supabase first
-      await _supabaseService.resolveAlert(alertId);
+  void _handleAcknowledge(String alertId) {
+    // Handle acknowledgment internally (user-specific, not stored in DB)
+    setState(() {
+      // Mark as locally acknowledged
+      _locallyAcknowledgedAlerts.add(alertId);
       
-      // Then update local state
-      setState(() {
-        final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
-        alert['isResolved'] = true;
-        // Alert will now appear in history tab
-      });
-      
-      _showFlushbar(
-        'Alert acknowledged',
-        'Alert has been moved to history',
-        const Color(0xFF00C851),
-      );
-    } catch (e) {
-      print('Error acknowledging alert: $e');
-      _showFlushbar(
-        'Error',
-        'Failed to acknowledge alert',
-        const Color(0xFFDC3545),
-      );
-    }
+      // Update local state
+      final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
+      alert['isResolved'] = true;
+      // Alert will now appear in history tab
+    });
+    
+    _showFlushbar(
+      'Alert acknowledged',
+      'Alert has been moved to history',
+      const Color(0xFF00C851),
+    );
   }
 
   void _handleMuteMachine(String alertId) {
@@ -257,36 +263,26 @@ class _AlertsScreenState extends State<AlertsScreen>
     );
   }
 
-  void _handleBulkAcknowledge() async {
-    try {
-      // Update all selected alerts in Supabase
+  void _handleBulkAcknowledge() {
+    // Handle acknowledgment internally (user-specific, not stored in DB)
+    setState(() {
       for (var alertId in _selectedAlerts) {
-        await _supabaseService.resolveAlert(alertId);
+        // Mark as locally acknowledged
+        _locallyAcknowledgedAlerts.add(alertId);
+        
+        // Update local state
+        final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
+        alert['isResolved'] = true;
+        // Alerts will now appear in history tab
       }
-      
-      // Then update local state
-      setState(() {
-        for (var alertId in _selectedAlerts) {
-          final alert = _allAlerts.firstWhere((a) => a['id'] == alertId);
-          alert['isResolved'] = true;
-          // Alerts will now appear in history tab
-        }
-      });
-      
-      _exitMultiSelectMode();
-      _showFlushbar(
-        'Alerts acknowledged',
-        '${_selectedAlerts.length} alerts moved to history',
-        const Color(0xFF00C851),
-      );
-    } catch (e) {
-      print('Error acknowledging alerts: $e');
-      _showFlushbar(
-        'Error',
-        'Failed to acknowledge some alerts',
-        const Color(0xFFDC3545),
-      );
-    }
+    });
+    
+    _exitMultiSelectMode();
+    _showFlushbar(
+      'Alerts acknowledged',
+      '${_selectedAlerts.length} alerts moved to history',
+      const Color(0xFF00C851),
+    );
   }
 
   void _handleBulkDismiss() {
