@@ -128,11 +128,38 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
                 : (efficiencyValue as num?)?.toDouble() ?? 0.0;
         final formattedEfficiency = '${efficiency.toStringAsFixed(0)}%';
 
-        // Transform machine metrics
+        // Transform machine metrics - pass full data for subcards
         final machines = metrics.map<Map<String, dynamic>>((m) {
+          final machineName = (m['machine_name'] as String? ?? 'Unknown').toLowerCase();
+          final explicitType = m['machine_type'] as String?;
+          String machineType;
+          if (explicitType != null) {
+            machineType = explicitType.toLowerCase();
+          } else if (machineName.contains('dryer')) {
+            machineType = 'dryer';
+          } else if (machineName.contains('kiln')) {
+            machineType = 'kiln';
+          } else {
+            machineType = 'unknown';
+          }
+          
           return {
             'name': m['machine_name'] as String? ?? 'Unknown',
+            'machine_name': m['machine_name'] as String? ?? 'Unknown',
             'efficiency': (m['efficiency'] as num?)?.toInt() ?? 0,
+            'machine_id': m['machine_id'] as String? ?? '',
+            'machine_type': machineType,
+            // Include all available metrics
+            'gas_consumption': m['gas_consumption'],
+            'energy_consumption': m['energy_consumption'],
+            'wagons': m['wagons'],
+            'production_units': m['production_units'],
+            'avg_cuts_per_minute': m['avg_cuts_per_minute'],
+            'avg_cut_per_min': m['avg_cut_per_min'],
+            'downtime_minutes': m['downtime_minutes'],
+            'downtime': m['downtime'],
+            'avg_push_time': m['avg_push_time'],
+            'avg_push_time_minutes': m['avg_push_time_minutes'],
           };
         }).toList();
 

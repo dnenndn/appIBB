@@ -4,6 +4,7 @@ import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/local_threshold_service.dart';
 import '../../core/repositories/data_repositories.dart';
 import '../../widgets/custom_app_bar.dart';
 import './widgets/export_options_dialog.dart';
@@ -38,6 +39,7 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
 
   final SupabaseService _supabaseService = SupabaseService();
   final MachineRepository _machineRepository = MachineRepository();
+  final LocalThresholdService _thresholdService = LocalThresholdService();
 
   @override
   void initState() {
@@ -115,21 +117,16 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         _currentValue = paramCurrentValue;
       }
       
-      // Get thresholds
-      final thresholds = await _supabaseService.getMachineThresholds(_machineId!);
-      final threshold = thresholds.firstWhere(
-        (t) => t['parameter_id'] == _parameterId,
-        orElse: () => {},
+      // Get thresholds from local storage (user-specific, not from Supabase)
+      // Default is currentValue - 10 and currentValue + 10
+      final threshold = await _thresholdService.getThresholdWithDefaults(
+        machineId: _machineId!,
+        parameterId: _parameterId!,
+        currentValue: _currentValue,
       );
       
-      if (threshold.isNotEmpty) {
-        _minThreshold = (threshold['min_threshold'] as num?)?.toDouble() ?? _parameterMin;
-        _maxThreshold = (threshold['max_threshold'] as num?)?.toDouble() ?? _parameterMax;
-      } else {
-        // Use parameter min/max as defaults
-        _minThreshold = _parameterMin;
-        _maxThreshold = _parameterMax;
-      }
+      _minThreshold = threshold['min']!;
+      _maxThreshold = threshold['max']!;
       
       // Calculate time range
       final endTime = DateTime.now();
@@ -178,39 +175,31 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
     HapticFeedback.lightImpact();
     setState(() => _minThreshold = value);
     
-    // Save threshold to Supabase in the background
-    _saveThresholdToSupabase(value, _maxThreshold);
+    // Save threshold locally (user-specific, not to Supabase)
+    _saveThresholdLocally(value, _maxThreshold);
   }
 
   void _onMaxThresholdChanged(double value) {
     HapticFeedback.lightImpact();
     setState(() => _maxThreshold = value);
     
-    // Save threshold to Supabase in the background
-    _saveThresholdToSupabase(_minThreshold, value);
+    // Save threshold locally (user-specific, not to Supabase)
+    _saveThresholdLocally(_minThreshold, value);
   }
 
-  Future<void> _saveThresholdToSupabase(double minThreshold, double maxThreshold) async {
+  Future<void> _saveThresholdLocally(double minThreshold, double maxThreshold) async {
     if (_machineId == null || _parameterId == null) return;
     
     try {
-      final thresholds = await _supabaseService.getMachineThresholds(_machineId!);
-      final threshold = thresholds.firstWhere(
-        (t) => t['parameter_id'] == _parameterId,
-        orElse: () => {},
+      await _thresholdService.setThreshold(
+        machineId: _machineId!,
+        parameterId: _parameterId!,
+        minThreshold: minThreshold,
+        maxThreshold: maxThreshold,
       );
-      
-      if (threshold.isNotEmpty && threshold['id'] != null) {
-        await _supabaseService.updateThreshold(
-          thresholdId: threshold['id'] as String,
-          minThreshold: minThreshold,
-          maxThreshold: maxThreshold,
-        );
-        print('Threshold updated successfully in Supabase');
-      }
+      print('Threshold saved locally');
     } catch (e) {
-      print('Error updating threshold in Supabase: $e');
-      // Don't show error to user as this happens in background
+      print('Error saving threshold locally: $e');
     }
   }
 

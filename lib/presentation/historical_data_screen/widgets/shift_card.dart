@@ -118,7 +118,7 @@ class ShiftCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Header row
+                        // Header row - only date and shift type
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -164,49 +164,6 @@ class ShiftCard extends StatelessWidget {
                               ),
                           ],
                         ),
-                        SizedBox(height: 2.h),
-                        // Metrics row
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildMetric(
-                                context,
-                                'Duration',
-                                shiftData['duration'] as String? ?? '',
-                                Icons.schedule,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildMetric(
-                                context,
-                                'Production',
-                                shiftData['production'] as String? ?? '',
-                                Icons.inventory_2,
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 1.h),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildMetric(
-                                context,
-                                'Efficiency',
-                                shiftData['efficiency'] as String? ?? '',
-                                Icons.trending_up,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildMetric(
-                                context,
-                                'Alerts',
-                                shiftData['alertCount'].toString(),
-                                Icons.notifications,
-                              ),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   ),
@@ -216,52 +173,6 @@ class ShiftCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildMetric(
-    BuildContext context,
-    String label,
-    String value,
-    IconData icon,
-  ) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        CustomIconWidget(
-          iconName: icon
-              .toString()
-              .split('.')
-              .last
-              .replaceAll('IconData(U+', '')
-              .replaceAll(')', ''),
-          size: 16,
-          color: theme.colorScheme.primary,
-        ),
-        SizedBox(width: 1.w),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                value,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

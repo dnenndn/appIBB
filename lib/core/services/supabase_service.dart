@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'local_threshold_service.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
@@ -306,9 +307,13 @@ class SupabaseService {
 
   /// Check parameters against thresholds and create/update/remove alerts
   /// This should be called periodically or when parameter values change
+  /// Uses local user-specific thresholds instead of Supabase thresholds
   Future<void> checkAndUpdateAlerts() async {
     try {
       print('Supabase: Checking parameters against thresholds...');
+      
+      // Initialize local threshold service
+      final thresholdService = LocalThresholdService();
       
       // Get all machines
       final machines = await getAllMachines();
@@ -327,35 +332,35 @@ class SupabaseService {
           
           if (currentValue == null) continue;
           
-          // Get thresholds for this parameter
-          final thresholds = await getMachineThresholds(machineId);
-          final threshold = thresholds.firstWhere(
-            (t) => t['parameter_id'] == parameterId,
-            orElse: () => {},
+          // Get thresholds from local storage (user-specific)
+          // Default is currentValue - 10 and currentValue + 10
+          final threshold = await thresholdService.getThresholdWithDefaults(
+            machineId: machineId,
+            parameterId: parameterId,
+            currentValue: currentValue,
           );
           
-          if (threshold.isEmpty) continue;
-          
-          final minThreshold = (threshold['min_threshold'] as num?)?.toDouble();
-          final maxThreshold = (threshold['max_threshold'] as num?)?.toDouble();
-          final warningThresholdLow = (threshold['warning_threshold_low'] as num?)?.toDouble();
-          final warningThresholdHigh = (threshold['warning_threshold_high'] as num?)?.toDouble();
+          final minThreshold = threshold['min']!;
+          final maxThreshold = threshold['max']!;
+          // Warning thresholds are 90% of min and 110% of max
+          final warningThresholdLow = minThreshold * 0.9;
+          final warningThresholdHigh = maxThreshold * 1.1;
           final isCritical = (parameter['is_critical'] as bool?) ?? false;
           
           // Determine current status
           String? currentStatus;
           String alertType = 'warning';
           
-          if (minThreshold != null && currentValue < minThreshold) {
+          if (currentValue < minThreshold) {
             currentStatus = isCritical ? 'critical' : 'warning';
             alertType = isCritical ? 'critical' : 'warning';
-          } else if (maxThreshold != null && currentValue > maxThreshold) {
+          } else if (currentValue > maxThreshold) {
             currentStatus = isCritical ? 'critical' : 'warning';
             alertType = isCritical ? 'critical' : 'warning';
-          } else if (warningThresholdLow != null && currentValue < warningThresholdLow) {
+          } else if (currentValue < warningThresholdLow) {
             currentStatus = 'warning';
             alertType = 'warning';
-          } else if (warningThresholdHigh != null && currentValue > warningThresholdHigh) {
+          } else if (currentValue > warningThresholdHigh) {
             currentStatus = 'warning';
             alertType = 'warning';
           } else {

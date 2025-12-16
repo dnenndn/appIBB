@@ -265,6 +265,9 @@ class _AlertsScreenState extends State<AlertsScreen>
 
   void _handleBulkAcknowledge() {
     // Handle acknowledgment internally (user-specific, not stored in DB)
+    // Capture count before clearing
+    final count = _selectedAlerts.length;
+    
     setState(() {
       for (var alertId in _selectedAlerts) {
         // Mark as locally acknowledged
@@ -280,19 +283,22 @@ class _AlertsScreenState extends State<AlertsScreen>
     _exitMultiSelectMode();
     _showFlushbar(
       'Alerts acknowledged',
-      '${_selectedAlerts.length} alerts moved to history',
+      '$count alerts moved to history',
       const Color(0xFF00C851),
     );
   }
 
   void _handleBulkDismiss() {
+    // Capture count before clearing
+    final count = _selectedAlerts.length;
+    
     setState(() {
       _allAlerts.removeWhere((a) => _selectedAlerts.contains(a['id']));
     });
     _exitMultiSelectMode();
     _showFlushbar(
       'Alerts dismissed',
-      '${_selectedAlerts.length} alerts dismissed',
+      '$count alerts dismissed',
       const Color(0xFF17A2B8),
     );
   }

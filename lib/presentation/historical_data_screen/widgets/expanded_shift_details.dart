@@ -3,6 +3,7 @@ import 'package:sizer/sizer.dart';
 
 import '../../../core/app_export.dart';
 import '../../../theme/app_theme.dart';
+import 'machine_subcard.dart';
 
 /// Expanded details view for shift card
 class ExpandedShiftDetails extends StatelessWidget {
@@ -34,7 +35,24 @@ class ExpandedShiftDetails extends StatelessWidget {
             ),
           ),
           SizedBox(height: 1.h),
-          ...machines.map((machine) => _buildMachineRow(context, machine)),
+          ...machines.map((machine) {
+            final explicitType = machine['machine_type'] as String?;
+            final machineName = (machine['name'] as String? ?? '').toLowerCase();
+            String machineType;
+            if (explicitType != null) {
+              machineType = explicitType.toLowerCase();
+            } else if (machineName.contains('dryer')) {
+              machineType = 'dryer';
+            } else if (machineName.contains('kiln')) {
+              machineType = 'kiln';
+            } else {
+              machineType = 'unknown';
+            }
+            return MachineSubcard(
+              machineData: machine,
+              machineType: machineType,
+            );
+          }),
           SizedBox(height: 2.h),
           Text(
             'Alert Summary',
