@@ -47,9 +47,26 @@ class MachineStatusCard extends StatelessWidget {
     final statusColor = _getStatusColor(status);
     final machineName = machineData['name'] as String? ?? 'Unknown Machine';
     final machineType = machineData['type'] as String? ?? 'machine';
-    final production = (machineData['production'] as num?)?.toDouble() ?? 0.0;
-    final temperature = (machineData['temperature'] as num?)?.toDouble() ?? 0.0;
-    final downtime = machineData['downtime'] as int? ?? 0;
+
+    // Metrics with fallbacks
+    final gasConsumption = (machineData['gas_consumption'] as num?)?.toDouble() ??
+        (machineData['energy_consumption'] as num?)?.toDouble() ??
+        (machineData['energyConsumption'] as num?)?.toDouble() ??
+        0.0;
+    final wagons = (machineData['wagons'] as num?)?.toInt() ??
+        (machineData['production_units'] as num?)?.toInt() ??
+        (machineData['production'] as num?)?.toInt() ??
+        0;
+    final avgCutsPerMinute = (machineData['avg_cuts_per_minute'] as num?)?.toDouble() ??
+        (machineData['avg_cut_per_min'] as num?)?.toDouble() ??
+        (machineData['avgCutPerMin'] as num?)?.toDouble() ??
+        0.0;
+    final downtimeMinutes = (machineData['downtime_minutes'] as num?)?.toInt() ??
+        (machineData['downtime'] as num?)?.toInt() ??
+        0;
+    final avgPushTime = (machineData['avg_push_time'] as num?)?.toDouble() ??
+        (machineData['avg_push_time_minutes'] as num?)?.toDouble() ??
+        0.0;
 
     return GestureDetector(
       onTap: onTap,
@@ -153,67 +170,15 @@ class MachineStatusCard extends StatelessWidget {
                   ),
                 ),
                 child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: _buildParameterItem(
-                            context,
-                            'Production',
-                            '${production.toStringAsFixed(1)} units/hr',
-                            Icons.speed,
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: AppTheme.lightTheme.colorScheme.outline
-                              .withValues(alpha: 0.2),
-                        ),
-                        Expanded(
-                          child: _buildParameterItem(
-                            context,
-                            'Temperature',
-                            '${temperature.toStringAsFixed(0)}°C',
-                            Icons.thermostat,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (downtime > 0) ...[
-                      SizedBox(height: 1.h),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 2.w, vertical: 1.h),
-                        decoration: BoxDecoration(
-                          color: AppTheme.lightTheme.colorScheme.error
-                              .withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CustomIconWidget(
-                              iconName: Icons.warning_amber.codePoint
-                                  .toRadixString(16),
-                              color: AppTheme.lightTheme.colorScheme.error,
-                              size: 16,
-                            ),
-                            SizedBox(width: 1.w),
-                            Text(
-                              'Downtime: ${downtime}min',
-                              style: AppTheme.lightTheme.textTheme.labelSmall
-                                  ?.copyWith(
-                                color: AppTheme.lightTheme.colorScheme.error,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
+                  children: _buildTypeSpecificMetrics(
+                    context: context,
+                    machineType: machineType,
+                    gasConsumption: gasConsumption,
+                    wagons: wagons,
+                    avgCutsPerMinute: avgCutsPerMinute,
+                    downtimeMinutes: downtimeMinutes,
+                    avgPushTime: avgPushTime,
+                  ),
                 ),
               ),
             ],
@@ -231,8 +196,8 @@ class MachineStatusCard extends StatelessWidget {
   ) {
     return Column(
       children: [
-        CustomIconWidget(
-          iconName: icon.codePoint.toRadixString(16),
+        Icon(
+          icon,
           color: AppTheme.lightTheme.colorScheme.primary,
           size: 20,
         ),
@@ -254,5 +219,157 @@ class MachineStatusCard extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  List<Widget> _buildTypeSpecificMetrics({
+    required BuildContext context,
+    required String machineType,
+    required double gasConsumption,
+    required int wagons,
+    required double avgCutsPerMinute,
+    required int downtimeMinutes,
+    required double avgPushTime,
+  }) {
+    final isDryer = machineType.toLowerCase().contains('dryer');
+    final isKiln = machineType.toLowerCase().contains('kiln');
+
+    if (isDryer) {
+      return [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Gas Consumption',
+                '${gasConsumption.toStringAsFixed(1)} kWh',
+                Icons.local_gas_station,
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 40,
+              color: AppTheme.lightTheme.colorScheme.outline
+                  .withValues(alpha: 0.2),
+            ),
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Wagons',
+                wagons.toString(),
+                Icons.inventory_2,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 1.h),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Avg Cuts/Min',
+                avgCutsPerMinute.toStringAsFixed(1),
+                Icons.speed,
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 40,
+              color: AppTheme.lightTheme.colorScheme.outline
+                  .withValues(alpha: 0.2),
+            ),
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Downtime',
+                '${downtimeMinutes} min',
+                Icons.pause_circle,
+              ),
+            ),
+          ],
+        ),
+      ];
+    }
+
+    if (isKiln) {
+      return [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Wagons',
+                wagons.toString(),
+                Icons.inventory_2,
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 40,
+              color: AppTheme.lightTheme.colorScheme.outline
+                  .withValues(alpha: 0.2),
+            ),
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Avg Push Time',
+                '${avgPushTime.toStringAsFixed(1)} min',
+                Icons.timer,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 1.h),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(child: SizedBox()),
+            Expanded(
+              child: _buildParameterItem(
+                context,
+                'Gas Consumption',
+                '${gasConsumption.toStringAsFixed(1)} kWh',
+                Icons.local_gas_station,
+              ),
+            ),
+            Expanded(child: SizedBox()),
+          ],
+        ),
+      ];
+    }
+
+    // Fallback for unknown machine types: show gas and wagons
+    return [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: _buildParameterItem(
+              context,
+              'Gas Consumption',
+              '${gasConsumption.toStringAsFixed(1)} kWh',
+              Icons.local_gas_station,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 40,
+            color: AppTheme.lightTheme.colorScheme.outline
+                .withValues(alpha: 0.2),
+          ),
+          Expanded(
+            child: _buildParameterItem(
+              context,
+              'Wagons',
+              wagons.toString(),
+              Icons.inventory_2,
+            ),
+          ),
+        ],
+      ),
+    ];
   }
 }

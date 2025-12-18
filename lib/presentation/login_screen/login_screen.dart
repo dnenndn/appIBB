@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:sizer/sizer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -435,40 +436,18 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
-        // Factory logo
+        // IDEAL BRIQUE Logo
         Container(
-          width: 30.w,
-          height: 30.w,
-          decoration: BoxDecoration(
-            color: AppTheme.lightTheme.colorScheme.primary,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.lightTheme.colorScheme.primary
-                    .withValues(alpha: 0.3),
-                blurRadius: 20,
-                spreadRadius: 5,
-              ),
-            ],
-          ),
-          child: Center(
-            child: CustomIconWidget(
-              iconName: 'factory',
-              color: Colors.white,
-              size: 15.w,
-            ),
-          ),
+          width: 50.w,
+          height: 30.h,
+          child: Image.asset(
+            'assets/images/img_app_logo.png',
+            fit: BoxFit.contain,
+            width: 50.w,
+            height: 30.h,
+          )
         ),
-        SizedBox(height: 3.h),
-        // App name
-        Text(
-          'BrickMonitor Pro',
-          style: AppTheme.lightTheme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: AppTheme.lightTheme.colorScheme.primary,
-          ),
-        ),
-        SizedBox(height: 1.h),
+        SizedBox(height: 2.h),
         // Security badge
         Container(
           padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
@@ -646,10 +625,16 @@ class _LoginScreenState extends State<LoginScreen> {
             height: 6.h,
             child: ElevatedButton(
               onPressed: _isLoading ? null : _handleLogin,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFFB22222), // Brick color
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8), // optional rounded corners
+                  ),
+              ),
               child: _isLoading
                   ? SizedBox(
                       width: 20,
-                      height: 20,
+                      height: 30,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
@@ -659,8 +644,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     )
                   : Text(
                       'Login',
+                       
                       style: AppTheme.lightTheme.textTheme.labelLarge?.copyWith(
                         color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
                       ),
                     ),
             ),
