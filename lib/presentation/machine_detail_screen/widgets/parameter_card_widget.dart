@@ -34,7 +34,15 @@ class ParameterCardWidget extends StatelessWidget {
 
   Color _getBackgroundColor(BuildContext context) {
     final statusColor = _getStatusColor(context);
-    return statusColor.withValues(alpha: 0.1);
+    // More prominent background color based on status
+    switch (status.toLowerCase()) {
+      case 'critical':
+        return statusColor.withValues(alpha: 0.15);
+      case 'warning':
+        return statusColor.withValues(alpha: 0.12);
+      default:
+        return statusColor.withValues(alpha: 0.08);
+    }
   }
 
   @override
@@ -52,13 +60,13 @@ class ParameterCardWidget extends StatelessWidget {
           color: backgroundColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: statusColor.withValues(alpha: 0.3),
-            width: 1.5,
+            color: statusColor.withValues(alpha: status == 'critical' ? 0.8 : status == 'warning' ? 0.6 : 0.3),
+            width: status == 'critical' ? 2.5 : status == 'warning' ? 2.0 : 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: statusColor.withValues(alpha: 0.2),
-              blurRadius: 8,
+              color: statusColor.withValues(alpha: status == 'critical' ? 0.4 : status == 'warning' ? 0.3 : 0.2),
+              blurRadius: status == 'critical' ? 12 : status == 'warning' ? 10 : 8,
               offset: const Offset(0, 2),
             ),
           ],

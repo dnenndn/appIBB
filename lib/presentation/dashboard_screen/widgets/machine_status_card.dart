@@ -108,10 +108,8 @@ class MachineStatusCard extends StatelessWidget {
                       color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: CustomIconWidget(
-                      iconName: _getMachineIcon(machineType)
-                          .codePoint
-                          .toRadixString(16),
+                    child: Icon(
+                      _getMachineIcon(machineType),
                       color: statusColor,
                       size: 24,
                     ),
@@ -196,8 +194,8 @@ class MachineStatusCard extends StatelessWidget {
   ) {
     return Column(
       children: [
-        Icon(
-          icon,
+        CustomIconWidget(
+          iconName: icon.codePoint.toRadixString(16),
           color: AppTheme.lightTheme.colorScheme.primary,
           size: 20,
         ),

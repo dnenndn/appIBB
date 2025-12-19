@@ -81,18 +81,20 @@ class ShiftCard extends StatelessWidget {
         child: Container(
           margin: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
           decoration: BoxDecoration(
-            color: theme.cardColor,
+            color: _getStatusColor(shiftData['status'] as String? ?? 'normal', context).withValues(
+              alpha: shiftData['status'] == 'critical' ? 0.15 : shiftData['status'] == 'warning' ? 0.12 : 0.05,
+            ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected
                   ? theme.colorScheme.primary
-                  : theme.colorScheme.outline.withValues(alpha: 0.2),
-              width: isSelected ? 2 : 1,
+                  : statusColor.withValues(alpha: shiftData['status'] == 'critical' ? 0.8 : shiftData['status'] == 'warning' ? 0.6 : 0.3),
+              width: isSelected ? 2 : (shiftData['status'] == 'critical' ? 2.5 : shiftData['status'] == 'warning' ? 2.0 : 1.5),
             ),
             boxShadow: [
               BoxShadow(
-                color: theme.shadowColor.withValues(alpha: 0.1),
-                blurRadius: 8,
+                color: statusColor.withValues(alpha: shiftData['status'] == 'critical' ? 0.4 : shiftData['status'] == 'warning' ? 0.3 : 0.2),
+                blurRadius: shiftData['status'] == 'critical' ? 12 : shiftData['status'] == 'warning' ? 10 : 8,
                 offset: const Offset(0, 2),
               ),
             ],

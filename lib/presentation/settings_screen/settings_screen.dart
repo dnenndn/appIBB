@@ -189,7 +189,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildInfoRow('App Name', 'BrickMonitor Pro'),
+                _buildInfoRow('App Name', 'appIBB'),
                 SizedBox(height: 1.h),
                 _buildInfoRow('Version', '1.0.0'),
                 SizedBox(height: 1.h),

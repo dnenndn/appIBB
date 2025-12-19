@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'dart:async';
 
 import '../../core/app_export.dart';
 import '../../core/repositories/data_repositories.dart';
+import '../../core/services/supabase_service.dart';
+import '../../core/services/local_threshold_service.dart';
+import '../../core/utils/status_calculator.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import './widgets/machine_controls_bottom_sheet_widget.dart';
@@ -30,6 +34,12 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   
   // Parameter data organized by categories, fetched from Supabase
   Map<String, List<Map<String, dynamic>>> _parametersByCategory = {};
+  
+  // Real-time subscriptions
+  StreamSubscription? _parametersSubscription;
+  StreamSubscription? _machineSubscription;
+  Timer? _parameterRefreshTimer;
+  final SupabaseService _supabaseService = SupabaseService();
 
   @override
   void initState() {
@@ -49,6 +59,13 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
 
   Future<void> _loadMachineData() async {
     try {
+      // Show loading state
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+        });
+      }
+      
       // Get the machine data passed from the previous screen
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       
@@ -65,28 +82,86 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         final parameters = await machineRepo.getMachineParameters(machineId);
         print('Loaded ${parameters.length} parameters');
         
-        // Process parameters into categories
-        final categorizedParams = _organizeParametersByCategory(parameters);
+        // Process parameters into categories (now async) - this will calculate status correctly
+        final categorizedParams = await _organizeParametersByCategory(parameters);
         print('Organized parameters into ${categorizedParams.length} categories');
         
         if (mounted) {
+          // Preserve current tab index if tab controller already exists
+          int? previousTabIndex;
+          String? previousTabCategory;
+          try {
+            if (_tabController.length > 0 && _tabController.index < _tabController.length) {
+              previousTabIndex = _tabController.index;
+              // Get the category name at the current tab index
+              final categoryList = _parametersByCategory.keys.toList();
+              if (previousTabIndex < categoryList.length) {
+                previousTabCategory = categoryList[previousTabIndex];
+              }
+            }
+          } catch (e) {
+            // Tab controller not initialized yet, that's okay
+            print('Tab controller not initialized yet: $e');
+          }
+          
           setState(() {
             _machineData = machine;
             _parametersByCategory = categorizedParams;
             _lastUpdated = DateTime.now();
+            _isLoading = false; // Hide loading after data is ready with correct status
             
-            // Initialize tab controller after we know the categories
-            _tabController = TabController(
-              length: _parametersByCategory.keys.length,
-              vsync: this,
-            );
+            // Initialize or update tab controller after we know the categories
+            final categoryCount = _parametersByCategory.keys.length;
+            final categoryList = _parametersByCategory.keys.toList();
+            
+            // Check if tab controller needs to be recreated
+            bool needsRecreation = false;
+            try {
+              // Try to access length to see if controller is valid
+              if (_tabController.length != categoryCount) {
+                needsRecreation = true;
+              }
+            } catch (e) {
+              // Controller is not initialized or disposed
+              needsRecreation = true;
+            }
+            
+            if (needsRecreation) {
+              try {
+                _tabController.dispose();
+              } catch (e) {
+                // Controller might already be disposed
+              }
+              _tabController = TabController(
+                length: categoryCount,
+                vsync: this,
+              );
+              
+              // Restore previous tab by category name if possible, otherwise by index
+              if (previousTabCategory != null) {
+                final newIndex = categoryList.indexOf(previousTabCategory);
+                if (newIndex >= 0 && newIndex < categoryCount) {
+                  _tabController.index = newIndex;
+                } else if (previousTabIndex != null && previousTabIndex < categoryCount) {
+                  _tabController.index = previousTabIndex;
+                }
+              } else if (previousTabIndex != null && previousTabIndex < categoryCount) {
+                _tabController.index = previousTabIndex;
+              }
+            }
           });
+          
+          // Start real-time updates after initial load
+          _startRealTimeUpdates();
         }
       }
     } catch (e) {
       print('Error loading machine data: $e');
       // Show error message to user
       if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         Fluttertoast.showToast(
           msg: "Failed to load machine data",
           toastLength: Toast.LENGTH_SHORT,
@@ -98,11 +173,36 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     }
   }
 
-  Map<String, List<Map<String, dynamic>>> _organizeParametersByCategory(
-      List<Map<String, dynamic>> parameters) {
+  Future<Map<String, List<Map<String, dynamic>>>> _organizeParametersByCategory(
+      List<Map<String, dynamic>> parameters) async {
     final categorized = <String, List<Map<String, dynamic>>>{};
     
     print('Organizing ${parameters.length} parameters');
+    
+    final machineId = _machineData['id'] as String?;
+    final thresholdService = LocalThresholdService();
+    
+    // Pre-fetch all thresholds in parallel for better performance
+    final thresholdFutures = <String, Future<Map<String, double?>>>{};
+    if (machineId != null) {
+      for (var param in parameters) {
+        final parameterId = param['id'] as String?;
+        final currentValue = (param['current_value'] as num?)?.toDouble();
+        if (parameterId != null && currentValue != null) {
+          thresholdFutures[parameterId] = _getThresholdsForParameter(
+            machineId: machineId,
+            parameterId: parameterId,
+            currentValue: currentValue,
+          );
+        }
+      }
+    }
+    
+    // Wait for all thresholds to be fetched
+    final thresholdResults = <String, Map<String, double?>>{};
+    await Future.wait(thresholdFutures.entries.map((e) async {
+      thresholdResults[e.key] = await e.value;
+    }));
     
     for (var param in parameters) {
       try {
@@ -120,13 +220,37 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         // Get timestamp (use created_at or last_updated if available)
         final timestampStr = param['created_at'] as String? ?? DateTime.now().toIso8601String();
         
+        // Calculate status using pre-fetched thresholds
+        String status = 'normal';
+        if (currentValue != null && machineId != null) {
+          final parameterId = param['id'] as String?;
+          if (parameterId != null && thresholdResults.containsKey(parameterId)) {
+            final thresholds = thresholdResults[parameterId]!;
+            final criticalMin = thresholds['criticalMin'] ?? (currentValue - 10);
+            final criticalMax = thresholds['criticalMax'] ?? (currentValue + 10);
+            final warningMin = thresholds['warningMin'] ?? (criticalMin * 0.9);
+            final warningMax = thresholds['warningMax'] ?? (criticalMax * 1.1);
+            
+            // Check critical thresholds first
+            if (currentValue < criticalMin || currentValue > criticalMax) {
+              status = 'critical';
+            } 
+            // Check warning thresholds
+            else if (currentValue < warningMin || currentValue > warningMax) {
+              status = 'warning';
+            } else {
+              status = 'normal';
+            }
+          }
+        }
+        
         // Create parameter entry
         final paramEntry = {
           "name": paramName,
           "value": currentValue != null ? currentValue.toStringAsFixed(2) : "N/A",
           "unit": paramUnit,
           "timestamp": DateTime.parse(timestampStr),
-          "status": _getParameterStatus(currentValue, param),
+          "status": status,
           "trendData": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, currentValue ?? 0.0], // Simplified trend data
         };
         
@@ -145,21 +269,89 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     print('Organized parameters into categories: ${categorized.keys}');
     return categorized;
   }
-
-  String _getParameterStatus(double? value, Map<String, dynamic> paramData) {
+  
+  Future<Map<String, double?>> _getThresholdsForParameter({
+    required String machineId,
+    required String parameterId,
+    required double currentValue,
+  }) async {
     try {
-      if (value == null) return 'unknown';
+      final thresholdService = LocalThresholdService();
       
-      final minValue = (paramData['min_value']  as num?)?.toDouble();
-      final maxValue = (paramData['max_value']  as num?)?.toDouble();
-      final isCritical = paramData['is_critical'] as bool? ?? false;
+      // Get critical thresholds
+      final criticalThresholds = await thresholdService.getThresholdWithDefaults(
+        machineId: machineId,
+        parameterId: parameterId,
+        currentValue: currentValue,
+      );
       
-      if (minValue != null && value < minValue) {
-        return isCritical ? 'critical' : 'warning';
+      final criticalMin = criticalThresholds['min']!;
+      final criticalMax = criticalThresholds['max']!;
+      
+      // Get warning thresholds
+      final warningThresholds = await thresholdService.getWarningThresholds(
+        machineId: machineId,
+        parameterId: parameterId,
+      );
+      
+      // Use actual warning thresholds if available, otherwise calculate from critical
+      final warningMin = warningThresholds?['min'] ?? (criticalMin * 0.9);
+      final warningMax = warningThresholds?['max'] ?? (criticalMax * 1.1);
+      
+      return {
+        'criticalMin': criticalMin,
+        'criticalMax': criticalMax,
+        'warningMin': warningMin,
+        'warningMax': warningMax,
+      };
+    } catch (e) {
+      print('Error getting thresholds: $e');
+      // Return defaults
+      return {
+        'criticalMin': currentValue - 10,
+        'criticalMax': currentValue + 10,
+        'warningMin': (currentValue - 10) * 0.9,
+        'warningMax': (currentValue + 10) * 1.1,
+      };
+    }
+  }
+
+  Future<String> _getParameterStatusAsync({
+    required double value,
+    required String machineId,
+    required String parameterId,
+  }) async {
+    try {
+      final thresholdService = LocalThresholdService();
+      
+      // Get critical thresholds
+      final criticalThresholds = await thresholdService.getThresholdWithDefaults(
+        machineId: machineId,
+        parameterId: parameterId,
+        currentValue: value,
+      );
+      
+      final criticalMin = criticalThresholds['min']!;
+      final criticalMax = criticalThresholds['max']!;
+      
+      // Get warning thresholds
+      final warningThresholds = await thresholdService.getWarningThresholds(
+        machineId: machineId,
+        parameterId: parameterId,
+      );
+      
+      // Use actual warning thresholds if available, otherwise calculate from critical
+      final warningMin = warningThresholds?['min'] ?? (criticalMin * 0.9);
+      final warningMax = warningThresholds?['max'] ?? (criticalMax * 1.1);
+      
+      // Check critical thresholds first
+      if (value < criticalMin || value > criticalMax) {
+        return 'critical';
       }
       
-      if (maxValue != null && value > maxValue) {
-        return isCritical ? 'critical' : 'warning';
+      // Check warning thresholds
+      if (value < warningMin || value > warningMax) {
+        return 'warning';
       }
       
       return 'normal';
@@ -172,7 +364,75 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _parametersSubscription?.cancel();
+    _machineSubscription?.cancel();
+    _parameterRefreshTimer?.cancel();
     super.dispose();
+  }
+  
+  void _startRealTimeUpdates() {
+    final machineId = _machineData['id'] as String?;
+    if (machineId == null) return;
+    
+    // Subscribe to machine changes
+    _machineSubscription?.cancel();
+    _machineSubscription = _supabaseService.getMachinesStream().listen(
+      (machines) {
+        final updatedMachine = machines.firstWhere(
+          (m) => m['id'] == machineId,
+          orElse: () => {},
+        );
+        if (updatedMachine.isNotEmpty && mounted) {
+          setState(() {
+            _machineData = updatedMachine;
+            _lastUpdated = DateTime.now();
+          });
+        }
+      },
+      onError: (error) {
+        print('Error in machine real-time subscription: $error');
+      },
+    );
+    
+    // Subscribe to parameter changes by periodically refreshing
+    // Note: Supabase real-time for parameters table would need to be set up
+    _parameterRefreshTimer?.cancel();
+    _parameterRefreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      // Preserve current tab index
+      int? currentTabIndex;
+      String? currentTabCategory;
+      try {
+        if (_tabController.length > 0 && _tabController.index < _tabController.length) {
+          currentTabIndex = _tabController.index;
+          final categoryList = _parametersByCategory.keys.toList();
+          if (currentTabIndex < categoryList.length) {
+            currentTabCategory = categoryList[currentTabIndex];
+          }
+        }
+      } catch (e) {
+        // Tab controller not initialized yet, that's okay
+        print('Tab controller not initialized in refresh: $e');
+      }
+      
+      // Reload data
+      await _loadMachineData();
+      
+      // Restore tab index after reload
+      if (mounted && currentTabCategory != null) {
+        final categoryList = _parametersByCategory.keys.toList();
+        final newIndex = categoryList.indexOf(currentTabCategory);
+        if (newIndex >= 0 && newIndex < _tabController.length) {
+          _tabController.index = newIndex;
+        } else if (currentTabIndex != null && currentTabIndex < _tabController.length) {
+          _tabController.index = currentTabIndex;
+        }
+      }
+    });
   }
 
   Future<void> _refreshData() async {

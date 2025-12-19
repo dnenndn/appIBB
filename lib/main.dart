@@ -5,6 +5,7 @@ import 'package:sizer/sizer.dart';
 import '../core/app_export.dart';
 import '../core/config/supabase_config.dart';
 import '../core/services/supabase_service.dart';
+import '../core/services/notification_service.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
@@ -15,6 +16,9 @@ void main() async {
     supabaseUrl: SupabaseConfig.supabaseUrl,
     supabaseAnonKey: SupabaseConfig.supabaseAnonKey,
   );
+
+  // Initialize notification service
+  await NotificationService().initialize();
 
   bool _hasShownError = false;
 
@@ -48,7 +52,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Sizer(builder: (context, orientation, screenType) {
       return MaterialApp(
-        title: 'brickmonitor_pro',
+        title: 'appIBB',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.light,

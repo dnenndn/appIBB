@@ -216,8 +216,8 @@ class AlertCard extends StatelessWidget {
                 ),
               ),
             ],
-          ),
         ),
+      ),
     );
 
     // Wrap with Slidable for swipe actions (only for active alerts and not in multi-select mode)

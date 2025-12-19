@@ -30,6 +30,8 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
   TimeRange _selectedRange = TimeRange.twentyFourHours;
   double _minThreshold = 0.0;
   double _maxThreshold = 100.0;
+  double? _warningMin;
+  double? _warningMax;
   double _parameterMin = 0.0;
   double _parameterMax = 1000.0;
   List<ParameterDataPoint> _dataPoints = [];
@@ -53,6 +55,13 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
       _hasInitialized = true;
       _initializeFromArguments();
     }
+  }
+  
+  @override
+  void didUpdateWidget(ParameterTrendScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reload data when widget is updated (e.g., when navigating back)
+    _loadData();
   }
 
   void _initializeFromArguments() {
@@ -118,7 +127,8 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
       }
       
       // Get thresholds from local storage (user-specific, not from Supabase)
-      // Default is currentValue - 10 and currentValue + 10
+      // Default is currentValue - 10 and currentValue + 10 for critical
+      // Default is currentValue - 5 and currentValue + 5 for warning
       final threshold = await _thresholdService.getThresholdWithDefaults(
         machineId: _machineId!,
         parameterId: _parameterId!,
@@ -127,6 +137,21 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
       
       _minThreshold = threshold['min']!;
       _maxThreshold = threshold['max']!;
+      
+      // Get warning thresholds
+      final warningThresholds = await _thresholdService.getWarningThresholds(
+        machineId: _machineId!,
+        parameterId: _parameterId!,
+      );
+      
+      if (warningThresholds != null) {
+        _warningMin = warningThresholds['min'];
+        _warningMax = warningThresholds['max'];
+      } else {
+        // If no warning thresholds exist, set defaults based on critical thresholds
+        _warningMin = _minThreshold * 0.9;
+        _warningMax = _maxThreshold * 1.1;
+      }
       
       // Calculate time range
       final endTime = DateTime.now();
@@ -203,6 +228,29 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
     }
   }
 
+  Future<void> _saveWarningAndCriticalThresholds({
+    required double warningMin,
+    required double warningMax,
+    required double criticalMin,
+    required double criticalMax,
+  }) async {
+    if (_machineId == null || _parameterId == null) return;
+    
+    try {
+      await _thresholdService.setWarningAndCriticalThresholds(
+        machineId: _machineId!,
+        parameterId: _parameterId!,
+        warningMin: warningMin,
+        warningMax: warningMax,
+        criticalMin: criticalMin,
+        criticalMax: criticalMax,
+      );
+      print('Warning and critical thresholds saved locally');
+    } catch (e) {
+      print('Error saving warning and critical thresholds locally: $e');
+    }
+  }
+
   void _showThresholdControls() {
     showModalBottomSheet(
       context: context,
@@ -211,10 +259,32 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
       builder: (context) => ThresholdControlSheet(
         minThreshold: _minThreshold,
         maxThreshold: _maxThreshold,
+        warningMin: _warningMin,
+        warningMax: _warningMax,
         parameterMin: _parameterMin,
         parameterMax: _parameterMax,
-        onMinChanged: _onMinThresholdChanged,
-        onMaxChanged: _onMaxThresholdChanged,
+        onMinChanged: (value) {
+          setState(() => _minThreshold = value);
+          _saveThresholdLocally(value, _maxThreshold);
+        },
+        onMaxChanged: (value) {
+          setState(() => _maxThreshold = value);
+          _saveThresholdLocally(_minThreshold, value);
+        },
+        onWarningAndCriticalChanged: (warningMin, warningMax, criticalMin, criticalMax) {
+          setState(() {
+            _warningMin = warningMin;
+            _warningMax = warningMax;
+            _minThreshold = criticalMin;
+            _maxThreshold = criticalMax;
+          });
+          _saveWarningAndCriticalThresholds(
+            warningMin: warningMin,
+            warningMax: warningMax,
+            criticalMin: criticalMin,
+            criticalMax: criticalMax,
+          );
+        },
       ),
     );
   }

@@ -1,4 +1,4 @@
-name: brickmonitor_pro
+name: appIBB
 description: A new Flutter project.
 publish_to: none
 version: 1.0.0+1
@@ -27,6 +27,7 @@ dependencies:
   flutter_slidable: ^4.0.3
   another_flushbar: ^1.12.32
   supabase_flutter: ^2.10.3
+  flutter_local_notifications: ^17.2.3
   # sign_in_with_apple: ^5.0.0
 
 dev_dependencies:

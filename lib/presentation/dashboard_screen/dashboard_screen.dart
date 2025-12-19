@@ -26,24 +26,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isRefreshing = false;
   List<Map<String, dynamic>> _machines = [];
   StreamSubscription? _machinesSubscription;
+  Timer? _alertCheckTimer;
+  final SupabaseService _supabaseService = SupabaseService();
 
   @override
   void initState() {
     super.initState();
     _loadMachinesFromSupabase();
     _startRealTimeUpdates();
+    _startAlertChecking();
   }
 
   @override
   void dispose() {
     _machinesSubscription?.cancel();
+    _alertCheckTimer?.cancel();
     super.dispose();
+  }
+  
+  void _startAlertChecking() {
+    // Periodically check parameters against thresholds and create/update alerts
+    _alertCheckTimer?.cancel();
+    _alertCheckTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      // Check and update alerts in background
+      _supabaseService.checkAndUpdateAlerts().catchError((error) {
+        print('Error checking alerts: $error');
+      });
+    });
   }
 
   Future<void> _loadMachinesFromSupabase() async {
     try {
-      final supabaseService = SupabaseService();
-      final machinesData = await supabaseService.getAllMachines();
+      final machinesData = await _supabaseService.getAllMachines();
       
       if (mounted) {
         setState(() {
@@ -124,11 +142,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _startRealTimeUpdates() {
-    final supabaseService = SupabaseService();
-    
     _machinesSubscription?.cancel();
     
-    _machinesSubscription = supabaseService.getMachinesStream().listen(
+    _machinesSubscription = _supabaseService.getMachinesStream().listen(
       (updatedMachines) {
         if (mounted) {
           setState(() {
@@ -227,7 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: AppTheme.lightTheme.scaffoldBackgroundColor,
       appBar: CustomAppBar.standard(
-        title: 'BrickMonitor Pro',
+        title: 'appIBB',
       ),
       body: SafeArea(
         child: Column(

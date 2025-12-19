@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
+import 'dart:async';
 
 import '../../core/app_export.dart';
 import '../../core/services/supabase_service.dart';
@@ -52,6 +53,9 @@ class _AlertsScreenState extends State<AlertsScreen>
   
   // Track locally acknowledged alerts (user-specific, not stored in DB)
   final Set<String> _locallyAcknowledgedAlerts = {};
+  
+  // Real-time subscription
+  Timer? _alertsRefreshTimer;
 
   // Get active alerts (not resolved and not locally acknowledged)
   List<Map<String, dynamic>> get _activeAlerts {
@@ -96,13 +100,35 @@ class _AlertsScreenState extends State<AlertsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadAlerts();
+    _loadAlerts(showLoading: true); // Show loading on initial load
+    _startRealTimeUpdates();
+  }
+  
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _alertsRefreshTimer?.cancel();
+    super.dispose();
+  }
+  
+  void _startRealTimeUpdates() {
+    // Periodically refresh alerts for real-time updates (without showing loading indicator)
+    _alertsRefreshTimer?.cancel();
+    _alertsRefreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _loadAlerts(showLoading: false); // Don't show loading on refresh
+    });
   }
 
-  Future<void> _loadAlerts() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _loadAlerts({bool showLoading = false}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       // Fetch all alerts from Supabase
@@ -167,12 +193,6 @@ class _AlertsScreenState extends State<AlertsScreen>
     } catch (e) {
       return 'Unknown';
     }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   void _handleRefresh() async {
@@ -339,20 +359,8 @@ class _AlertsScreenState extends State<AlertsScreen>
   }
 
   void _showFlushbar(String title, String message, Color color) {
-    Flushbar(
-      title: title,
-      message: message,
-      duration: const Duration(seconds: 3),
-      backgroundColor: color,
-      margin: EdgeInsets.all(2.w),
-      borderRadius: BorderRadius.circular(8),
-      icon: CustomIconWidget(
-        iconName: 'check_circle',
-        color: Colors.white,
-        size: 24,
-      ),
-      leftBarIndicatorColor: Colors.white,
-    ).show(context);
+    // Removed popup notifications - using system notifications instead
+    // Flushbar notifications removed as per requirements
   }
 
   @override

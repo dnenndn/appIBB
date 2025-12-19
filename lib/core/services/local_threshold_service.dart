@@ -49,9 +49,61 @@ class LocalThresholdService {
       print('Error saving threshold: $e');
     }
   }
+
+  /// Save warning and critical thresholds separately
+  Future<void> setWarningAndCriticalThresholds({
+    required String machineId,
+    required String parameterId,
+    required double warningMin,
+    required double warningMax,
+    required double criticalMin,
+    required double criticalMax,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_thresholdPrefix$machineId\_$parameterId';
+      
+      // Store critical thresholds as the main thresholds (for backward compatibility)
+      await prefs.setDouble('${key}_min', criticalMin);
+      await prefs.setDouble('${key}_max', criticalMax);
+      
+      // Store warning thresholds separately
+      await prefs.setDouble('${key}_warning_min', warningMin);
+      await prefs.setDouble('${key}_warning_max', warningMax);
+    } catch (e) {
+      print('Error saving warning and critical thresholds: $e');
+    }
+  }
+
+  /// Get warning thresholds
+  Future<Map<String, double>?> getWarningThresholds({
+    required String machineId,
+    required String parameterId,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_thresholdPrefix$machineId\_$parameterId';
+      
+      final warningMin = prefs.getDouble('${key}_warning_min');
+      final warningMax = prefs.getDouble('${key}_warning_max');
+      
+      if (warningMin != null && warningMax != null) {
+        return {
+          'min': warningMin,
+          'max': warningMax,
+        };
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting warning thresholds: $e');
+      return null;
+    }
+  }
   
   /// Get threshold with default values if not set
-  /// Default is currentValue - 10 for min and currentValue + 10 for max
+  /// Default is currentValue - 10 for min and currentValue + 10 for max (critical)
+  /// Warning defaults are -5 and +5
   Future<Map<String, double>> getThresholdWithDefaults({
     required String machineId,
     required String parameterId,
@@ -66,10 +118,32 @@ class LocalThresholdService {
       return threshold;
     }
     
-    // Default: -10 and +10 from current value
+    // Default: -10 and +10 from current value for critical thresholds
+    // Set defaults automatically when first accessed
+    final criticalMin = currentValue - 10;
+    final criticalMax = currentValue + 10;
+    
+    // Save defaults
+    await setThreshold(
+      machineId: machineId,
+      parameterId: parameterId,
+      minThreshold: criticalMin,
+      maxThreshold: criticalMax,
+    );
+    
+    // Set warning defaults (-5 and +5)
+    await setWarningAndCriticalThresholds(
+      machineId: machineId,
+      parameterId: parameterId,
+      warningMin: currentValue - 5,
+      warningMax: currentValue + 5,
+      criticalMin: criticalMin,
+      criticalMax: criticalMax,
+    );
+    
     return {
-      'min': currentValue - 10,
-      'max': currentValue + 10,
+      'min': criticalMin,
+      'max': criticalMax,
     };
   }
   

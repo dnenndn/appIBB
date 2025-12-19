@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'local_threshold_service.dart';
+import 'notification_service.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
@@ -342,88 +343,158 @@ class SupabaseService {
           
           final minThreshold = threshold['min']!;
           final maxThreshold = threshold['max']!;
-          // Warning thresholds are 90% of min and 110% of max
-          final warningThresholdLow = minThreshold * 0.9;
-          final warningThresholdHigh = maxThreshold * 1.1;
-          final isCritical = (parameter['is_critical'] as bool?) ?? false;
+          
+          // Get warning thresholds from storage
+          final warningThresholds = await thresholdService.getWarningThresholds(
+            machineId: machineId,
+            parameterId: parameterId,
+          );
+          
+          // Use actual warning thresholds if available, otherwise calculate from critical
+          final warningThresholdLow = warningThresholds?['min'] ?? (minThreshold * 0.9);
+          final warningThresholdHigh = warningThresholds?['max'] ?? (maxThreshold * 1.1);
           
           // Determine current status
           String? currentStatus;
           String alertType = 'warning';
           
-          if (currentValue < minThreshold) {
-            currentStatus = isCritical ? 'critical' : 'warning';
-            alertType = isCritical ? 'critical' : 'warning';
-          } else if (currentValue > maxThreshold) {
-            currentStatus = isCritical ? 'critical' : 'warning';
-            alertType = isCritical ? 'critical' : 'warning';
-          } else if (currentValue < warningThresholdLow) {
+          // Check critical thresholds first (outside critical range)
+          if (currentValue < minThreshold || currentValue > maxThreshold) {
+            currentStatus = 'critical';
+            alertType = 'critical';
+          } 
+          // Check warning thresholds (outside warning range but inside critical)
+          else if (currentValue < warningThresholdLow || currentValue > warningThresholdHigh) {
             currentStatus = 'warning';
             alertType = 'warning';
-          } else if (currentValue > warningThresholdHigh) {
-            currentStatus = 'warning';
-            alertType = 'warning';
-          } else {
+          } 
+          // Normal (inside both ranges)
+          else {
             currentStatus = 'normal';
           }
           
-          // Check if alert already exists for this parameter
-          final existingAlerts = await supabase
+          // Use a deterministic ID to prevent duplicates
+          final alertId = 'alert_${machineId}_${parameterId}';
+          
+          // Check if alert with this ID already exists (regardless of resolved status)
+          final existingAlertById = await supabase
+              .from('alerts')
+              .select()
+              .eq('id', alertId)
+              .maybeSingle();
+          
+          // Also check for any unresolved alerts for this parameter (for cleanup)
+          final existingUnresolvedAlerts = await supabase
               .from('alerts')
               .select()
               .eq('machine_id', machineId)
               .eq('parameter', parameterName)
               .eq('is_resolved', false);
           
-          final existingAlertsList = List<Map<String, dynamic>>.from(existingAlerts);
+          final existingUnresolvedList = List<Map<String, dynamic>>.from(existingUnresolvedAlerts);
           
           if (currentStatus == 'normal') {
             // Remove/resolve all active alerts for this parameter
-            for (var alert in existingAlertsList) {
+            for (var alert in existingUnresolvedList) {
               await resolveAlert(alert['id'] as String);
+            }
+            // Also resolve the deterministic alert if it exists
+            if (existingAlertById != null && existingAlertById['is_resolved'] != true) {
+              await resolveAlert(alertId);
             }
             print('Supabase: Resolved alerts for $parameterName on $machineName (value back to normal)');
           } else {
-            // Create or update alert
-            if (existingAlertsList.isEmpty) {
-              // Create new alert
-              final alertId = 'alert_${machineId}_${parameterId}_${DateTime.now().millisecondsSinceEpoch}';
-              await createAlert({
-                'id': alertId,
-                'machine_id': machineId,
-                'parameter': parameterName,
-                'alert_type': 'Threshold ${currentStatus == 'critical' ? 'Exceeded' : 'Warning'}',
-                'type': alertType,
-                'severity': currentStatus,
-                'title': '$parameterName ${currentStatus == 'critical' ? 'Critical' : 'Warning'}',
-                'description': 'Parameter value ${currentValue} is ${currentStatus == 'critical' ? 'outside' : 'approaching'} threshold limits',
-                'current_status': 'Current value: $currentValue (Threshold: ${minThreshold != null && currentValue < minThreshold ? 'Min: $minThreshold' : 'Max: $maxThreshold'})',
-                'current_value': currentValue,
-                'expected_value': minThreshold != null && currentValue < minThreshold ? minThreshold : maxThreshold,
-                'is_resolved': false,
-              });
-              print('Supabase: Created ${currentStatus} alert for $parameterName on $machineName');
-            } else {
-              // Update existing alert if status changed
-              final existingAlert = existingAlertsList.first;
-              final existingSeverity = existingAlert['severity'] as String?;
+            // Create or update alert - use upsert pattern
+            final alertData = {
+              'id': alertId,
+              'machine_id': machineId,
+              'parameter': parameterName,
+              'alert_type': 'Threshold ${currentStatus == 'critical' ? 'Exceeded' : 'Warning'}',
+              'type': alertType,
+              'severity': currentStatus,
+              'title': '$parameterName ${currentStatus == 'critical' ? 'Critical' : 'Warning'}',
+              'description': 'Parameter value ${currentValue} is ${currentStatus == 'critical' ? 'outside' : 'approaching'} threshold limits',
+              'current_status': 'Current value: $currentValue (Threshold: ${currentValue < minThreshold ? 'Min: $minThreshold' : 'Max: $maxThreshold'})',
+              'current_value': currentValue,
+              'expected_value': currentValue < minThreshold ? minThreshold : maxThreshold,
+              'is_resolved': false,
+            };
+            
+            if (existingAlertById != null) {
+              // Alert exists - update it
+              final existingSeverity = existingAlertById['severity'] as String?;
+              final wasResolved = existingAlertById['is_resolved'] == true;
               
-              if (existingSeverity != currentStatus) {
-                await supabase.from('alerts').update({
-                  'type': alertType,
-                  'severity': currentStatus,
-                  'title': '$parameterName ${currentStatus == 'critical' ? 'Critical' : 'Warning'}',
-                  'description': 'Parameter value ${currentValue} is ${currentStatus == 'critical' ? 'outside' : 'approaching'} threshold limits',
-                  'current_status': 'Current value: $currentValue (Threshold: ${minThreshold != null && currentValue < minThreshold ? 'Min: $minThreshold' : 'Max: $maxThreshold'})',
-                  'current_value': currentValue,
-                }).eq('id', existingAlert['id']);
+              await supabase.from('alerts').update(alertData).eq('id', alertId);
+              
+              // Show notification if status changed to critical or if alert was just reactivated
+              if ((currentStatus == 'critical' && (existingSeverity != 'critical' || wasResolved)) || wasResolved) {
+                final notificationService = NotificationService();
+                if (currentStatus == 'critical') {
+                  await notificationService.showCriticalAlert(
+                    title: '$parameterName Critical Alert',
+                    body: 'Parameter value ${currentValue} is outside threshold limits on $machineName',
+                    machineName: machineName,
+                    parameterName: parameterName,
+                  );
+                } else {
+                  await notificationService.showWarningAlert(
+                    title: '$parameterName Warning',
+                    body: 'Parameter value ${currentValue} is approaching threshold limits on $machineName',
+                    machineName: machineName,
+                    parameterName: parameterName,
+                  );
+                }
+              }
+              
+              if (wasResolved) {
+                print('Supabase: Reactivated alert for $parameterName on $machineName');
+              } else if (existingSeverity != currentStatus) {
                 print('Supabase: Updated alert status for $parameterName on $machineName from $existingSeverity to $currentStatus');
               } else {
-                // Update current value even if status hasn't changed
-                await supabase.from('alerts').update({
-                  'current_value': currentValue,
-                  'current_status': 'Current value: $currentValue (Threshold: ${minThreshold != null && currentValue < minThreshold ? 'Min: $minThreshold' : 'Max: $maxThreshold'})',
-                }).eq('id', existingAlert['id']);
+                print('Supabase: Updated alert for $parameterName on $machineName');
+              }
+            } else {
+              // Alert doesn't exist - create it
+              try {
+                await createAlert(alertData);
+                
+                // Show system notification
+                final notificationService = NotificationService();
+                if (currentStatus == 'critical') {
+                  await notificationService.showCriticalAlert(
+                    title: '$parameterName Critical Alert',
+                    body: 'Parameter value ${currentValue} is outside threshold limits on $machineName',
+                    machineName: machineName,
+                    parameterName: parameterName,
+                  );
+                } else {
+                  await notificationService.showWarningAlert(
+                    title: '$parameterName Warning',
+                    body: 'Parameter value ${currentValue} is approaching threshold limits on $machineName',
+                    machineName: machineName,
+                    parameterName: parameterName,
+                  );
+                }
+                
+                print('Supabase: Created ${currentStatus} alert for $parameterName on $machineName');
+              } catch (e) {
+                // If creation fails due to duplicate key, try to update instead
+                if (e.toString().contains('duplicate key') || e.toString().contains('23505')) {
+                  print('Supabase: Alert creation failed (duplicate), updating instead');
+                  await supabase.from('alerts').update(alertData).eq('id', alertId);
+                  print('Supabase: Updated alert for $parameterName on $machineName');
+                } else {
+                  rethrow;
+                }
+              }
+            }
+            
+            // Resolve any other duplicate alerts (alerts with different IDs for same parameter)
+            for (var alert in existingUnresolvedList) {
+              if (alert['id'] != alertId) {
+                await resolveAlert(alert['id'] as String);
+                print('Supabase: Resolved duplicate alert ${alert['id']} for $parameterName on $machineName');
               }
             }
           }

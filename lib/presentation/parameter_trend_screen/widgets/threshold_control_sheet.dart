@@ -5,22 +5,29 @@ import '../../../core/app_export.dart';
 import '../../../theme/app_theme.dart';
 
 /// Bottom sheet for threshold adjustment controls
+/// Now supports separate warning and critical thresholds with text input only
 class ThresholdControlSheet extends StatefulWidget {
   final double minThreshold;
   final double maxThreshold;
+  final double? warningMin;
+  final double? warningMax;
   final double parameterMin;
   final double parameterMax;
   final ValueChanged<double> onMinChanged;
   final ValueChanged<double> onMaxChanged;
+  final Function(double warningMin, double warningMax, double criticalMin, double criticalMax)? onWarningAndCriticalChanged;
 
   const ThresholdControlSheet({
     super.key,
     required this.minThreshold,
     required this.maxThreshold,
+    this.warningMin,
+    this.warningMax,
     required this.parameterMin,
     required this.parameterMax,
     required this.onMinChanged,
     required this.onMaxChanged,
+    this.onWarningAndCriticalChanged,
   });
 
   @override
@@ -28,45 +35,119 @@ class ThresholdControlSheet extends StatefulWidget {
 }
 
 class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
-  late TextEditingController _minController;
-  late TextEditingController _maxController;
-  late double _currentMin;
-  late double _currentMax;
+  late TextEditingController _warningMinController;
+  late TextEditingController _warningMaxController;
+  late TextEditingController _criticalMinController;
+  late TextEditingController _criticalMaxController;
+  late double _warningMin;
+  late double _warningMax;
+  late double _criticalMin;
+  late double _criticalMax;
 
   @override
   void initState() {
     super.initState();
-    _currentMin = widget.minThreshold;
-    _currentMax = widget.maxThreshold;
-    _minController = TextEditingController(
-      text: _currentMin.toStringAsFixed(1),
+    // Initialize critical thresholds from widget values
+    _criticalMin = widget.minThreshold;
+    _criticalMax = widget.maxThreshold;
+    
+    // Initialize warning thresholds - use provided values or defaults
+    if (widget.warningMin != null && widget.warningMax != null) {
+      _warningMin = widget.warningMin!;
+      _warningMax = widget.warningMax!;
+    } else {
+      // Defaults are -5 and +5 from current value (which would be middle of critical range)
+      final currentValue = (widget.minThreshold + widget.maxThreshold) / 2;
+      _warningMin = currentValue - 5;
+      _warningMax = currentValue + 5;
+    }
+    
+    _warningMinController = TextEditingController(
+      text: _warningMin.toStringAsFixed(1),
     );
-    _maxController = TextEditingController(
-      text: _currentMax.toStringAsFixed(1),
+    _warningMaxController = TextEditingController(
+      text: _warningMax.toStringAsFixed(1),
+    );
+    _criticalMinController = TextEditingController(
+      text: _criticalMin.toStringAsFixed(1),
+    );
+    _criticalMaxController = TextEditingController(
+      text: _criticalMax.toStringAsFixed(1),
     );
   }
 
   @override
   void dispose() {
-    _minController.dispose();
-    _maxController.dispose();
+    _warningMinController.dispose();
+    _warningMaxController.dispose();
+    _criticalMinController.dispose();
+    _criticalMaxController.dispose();
     super.dispose();
   }
 
-  void _updateMinThreshold(double value) {
-    setState(() {
-      _currentMin = value;
-      _minController.text = value.toStringAsFixed(1);
-    });
-    widget.onMinChanged(value);
+  void _updateWarningMin(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null &&
+        parsed >= widget.parameterMin &&
+        parsed < _criticalMin) {
+      setState(() {
+        _warningMin = parsed;
+        _warningMinController.text = parsed.toStringAsFixed(1);
+      });
+      _notifyThresholdsChanged();
+    }
   }
 
-  void _updateMaxThreshold(double value) {
-    setState(() {
-      _currentMax = value;
-      _maxController.text = value.toStringAsFixed(1);
-    });
-    widget.onMaxChanged(value);
+  void _updateWarningMax(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null &&
+        parsed <= widget.parameterMax &&
+        parsed > _criticalMax) {
+      setState(() {
+        _warningMax = parsed;
+        _warningMaxController.text = parsed.toStringAsFixed(1);
+      });
+      _notifyThresholdsChanged();
+    }
+  }
+
+  void _updateCriticalMin(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null &&
+        parsed >= widget.parameterMin &&
+        parsed < _warningMin) {
+      setState(() {
+        _criticalMin = parsed;
+        _criticalMinController.text = parsed.toStringAsFixed(1);
+      });
+      widget.onMinChanged(parsed);
+      _notifyThresholdsChanged();
+    }
+  }
+
+  void _updateCriticalMax(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null &&
+        parsed <= widget.parameterMax &&
+        parsed > _warningMax) {
+      setState(() {
+        _criticalMax = parsed;
+        _criticalMaxController.text = parsed.toStringAsFixed(1);
+      });
+      widget.onMaxChanged(parsed);
+      _notifyThresholdsChanged();
+    }
+  }
+
+  void _notifyThresholdsChanged() {
+    if (widget.onWarningAndCriticalChanged != null) {
+      widget.onWarningAndCriticalChanged!(
+        _warningMin,
+        _warningMax,
+        _criticalMin,
+        _criticalMax,
+      );
+    }
   }
 
   @override
@@ -103,41 +184,71 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
           ),
           SizedBox(height: 3.h),
 
-          // Minimum threshold control
-          _buildThresholdControl(
-            context: context,
-            label: 'Minimum Threshold',
-            value: _currentMin,
-            controller: _minController,
-            color: AppTheme.lightTheme.colorScheme.tertiary,
-            onSliderChanged: _updateMinThreshold,
-            onTextChanged: (value) {
-              final parsed = double.tryParse(value);
-              if (parsed != null &&
-                  parsed >= widget.parameterMin &&
-                  parsed < _currentMax) {
-                _updateMinThreshold(parsed);
-              }
-            },
+          // Warning thresholds section
+          Text(
+            'Warning Thresholds',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: const Color(0xFFFF8800),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: 1.h),
+          Row(
+            children: [
+              Expanded(
+                child: _buildThresholdInput(
+                  context: context,
+                  label: 'Min Warning',
+                  controller: _warningMinController,
+                  color: const Color(0xFFFF8800),
+                  onChanged: _updateWarningMin,
+                ),
+              ),
+              SizedBox(width: 2.w),
+              Expanded(
+                child: _buildThresholdInput(
+                  context: context,
+                  label: 'Max Warning',
+                  controller: _warningMaxController,
+                  color: const Color(0xFFFF8800),
+                  onChanged: _updateWarningMax,
+                ),
+              ),
+            ],
           ),
           SizedBox(height: 3.h),
 
-          // Maximum threshold control
-          _buildThresholdControl(
-            context: context,
-            label: 'Maximum Threshold',
-            value: _currentMax,
-            controller: _maxController,
-            color: AppTheme.lightTheme.colorScheme.error,
-            onSliderChanged: _updateMaxThreshold,
-            onTextChanged: (value) {
-              final parsed = double.tryParse(value);
-              if (parsed != null &&
-                  parsed <= widget.parameterMax &&
-                  parsed > _currentMin) {
-                _updateMaxThreshold(parsed);
-              }
-            },
+          // Critical thresholds section
+          Text(
+            'Critical Thresholds',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: AppTheme.lightTheme.colorScheme.error,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: 1.h),
+          Row(
+            children: [
+              Expanded(
+                child: _buildThresholdInput(
+                  context: context,
+                  label: 'Min Critical',
+                  controller: _criticalMinController,
+                  color: AppTheme.lightTheme.colorScheme.error,
+                  onChanged: _updateCriticalMin,
+                ),
+              ),
+              SizedBox(width: 2.w),
+              Expanded(
+                child: _buildThresholdInput(
+                  context: context,
+                  label: 'Max Critical',
+                  controller: _criticalMaxController,
+                  color: AppTheme.lightTheme.colorScheme.error,
+                  onChanged: _updateCriticalMax,
+                ),
+              ),
+            ],
           ),
           SizedBox(height: 2.h),
 
@@ -149,63 +260,52 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
     );
   }
 
-  Widget _buildThresholdControl({
+  Widget _buildThresholdInput({
     required BuildContext context,
     required String label,
-    required double value,
     required TextEditingController controller,
     required Color color,
-    required ValueChanged<double> onSliderChanged,
-    required ValueChanged<String> onTextChanged,
+    required ValueChanged<String> onChanged,
   }) {
     final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label,
-              style: theme.textTheme.titleMedium,
-            ),
-            SizedBox(
-              width: 20.w,
-              child: TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyLarge,
-                decoration: InputDecoration(
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 2.w,
-                    vertical: 1.h,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                onSubmitted: onTextChanged,
-              ),
-            ),
-          ],
+        Text(
+          label,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
         ),
-        SizedBox(height: 1.h),
-        SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            activeTrackColor: color,
-            thumbColor: color,
-            overlayColor: color.withValues(alpha: 0.2),
-            inactiveTrackColor: theme.colorScheme.outline,
+        SizedBox(height: 0.5.h),
+        TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: color,
           ),
-          child: Slider(
-            value: value,
-            min: widget.parameterMin,
-            max: widget.parameterMax,
-            divisions: 100,
-            onChanged: onSliderChanged,
+          decoration: InputDecoration(
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 2.w,
+              vertical: 1.h,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: color, width: 2),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: color.withValues(alpha: 0.5), width: 1.5),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: color, width: 2),
+            ),
           ),
+          onChanged: onChanged,
         ),
       ],
     );
