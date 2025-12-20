@@ -16,6 +16,8 @@ class ThresholdControlSheet extends StatefulWidget {
   final ValueChanged<double> onMinChanged;
   final ValueChanged<double> onMaxChanged;
   final Function(double warningMin, double warningMax, double criticalMin, double criticalMax)? onWarningAndCriticalChanged;
+  final Function(double warningMin, double warningMax, double criticalMin, double criticalMax)? onSave;
+  final VoidCallback? onCancel;
 
   const ThresholdControlSheet({
     super.key,
@@ -28,6 +30,8 @@ class ThresholdControlSheet extends StatefulWidget {
     required this.onMinChanged,
     required this.onMaxChanged,
     this.onWarningAndCriticalChanged,
+    this.onSave,
+    this.onCancel,
   });
 
   @override
@@ -92,7 +96,6 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
         parsed < _criticalMin) {
       setState(() {
         _warningMin = parsed;
-        _warningMinController.text = parsed.toStringAsFixed(1);
       });
       _notifyThresholdsChanged();
     }
@@ -105,7 +108,6 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
         parsed > _criticalMax) {
       setState(() {
         _warningMax = parsed;
-        _warningMaxController.text = parsed.toStringAsFixed(1);
       });
       _notifyThresholdsChanged();
     }
@@ -118,9 +120,7 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
         parsed < _warningMin) {
       setState(() {
         _criticalMin = parsed;
-        _criticalMinController.text = parsed.toStringAsFixed(1);
       });
-      widget.onMinChanged(parsed);
       _notifyThresholdsChanged();
     }
   }
@@ -132,9 +132,7 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
         parsed > _warningMax) {
       setState(() {
         _criticalMax = parsed;
-        _criticalMaxController.text = parsed.toStringAsFixed(1);
       });
-      widget.onMaxChanged(parsed);
       _notifyThresholdsChanged();
     }
   }
@@ -176,6 +174,65 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
             ),
           ),
           SizedBox(height: 2.h),
+          // Action buttons
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  if (widget.onCancel != null) widget.onCancel!();
+                  Navigator.of(context).pop();
+                },
+                child: Text('Cancel', style: theme.textTheme.bodyMedium),
+              ),
+              SizedBox(width: 3.w),
+              ElevatedButton(
+                onPressed: () {
+                  // Ensure any in-progress edits are committed
+                  FocusScope.of(context).unfocus();
+
+                  // Parse final values from controllers (safer than relying on onChanged)
+                  final parsedCriticalMin = double.tryParse(_criticalMinController.text);
+                  final parsedCriticalMax = double.tryParse(_criticalMaxController.text);
+                  final parsedWarningMin = double.tryParse(_warningMinController.text);
+                  final parsedWarningMax = double.tryParse(_warningMaxController.text);
+
+                  // Apply parsed values if valid and within parameter bounds
+                  if (parsedCriticalMin != null && parsedCriticalMin >= widget.parameterMin) {
+                    _criticalMin = parsedCriticalMin;
+                  }
+                  if (parsedCriticalMax != null && parsedCriticalMax <= widget.parameterMax) {
+                    _criticalMax = parsedCriticalMax;
+                  }
+
+                  if (parsedWarningMin != null && parsedWarningMin >= widget.parameterMin) {
+                    _warningMin = parsedWarningMin;
+                  }
+                  if (parsedWarningMax != null && parsedWarningMax <= widget.parameterMax) {
+                    _warningMax = parsedWarningMax;
+                  }
+
+                  // Enforce simple relational constraints: ensure criticals are outside warnings
+                  if (!(_criticalMin < _warningMin)) {
+                    // adjust criticalMin to be slightly below warningMin
+                    _criticalMin = (_warningMin - 0.1).clamp(widget.parameterMin, _warningMin - 0.0001);
+                  }
+                  if (!(_criticalMax > _warningMax)) {
+                    _criticalMax = (_warningMax + 0.1).clamp(_warningMax + 0.0001, widget.parameterMax);
+                  }
+
+                  _notifyThresholdsChanged();
+
+                  if (widget.onSave != null) {
+                    widget.onSave!(_warningMin, _warningMax, _criticalMin, _criticalMax);
+                  }
+
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
 
           // Title
           Text(
@@ -306,6 +363,7 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
             ),
           ),
           onChanged: onChanged,
+        
         ),
       ],
     );

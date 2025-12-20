@@ -146,12 +146,28 @@ class SupabaseService {
 
   /// Fetch specific machine by ID
   Future<Map<String, dynamic>> getMachineById(String machineId) async {
-    try {
-      final response =
-          await supabase.from('machines').select().eq('id', machineId).single();
-      return response;
-    } catch (e) {
-      throw Exception('Failed to fetch machine: $e');
+    const int maxRetries = 2;
+    int attempt = 0;
+    while (true) {
+      try {
+        final response = await supabase.from('machines').select().eq('id', machineId).single();
+        return response;
+      } catch (e) {
+        attempt += 1;
+        final errStr = e.toString();
+        
+
+        // If transient (502/timeout/cloudflare), retry a couple times
+        final isTransient = errStr.contains('502') || errStr.toLowerCase().contains('bad gateway') || errStr.toLowerCase().contains('timeout');
+        if (attempt <= maxRetries && isTransient) {
+          final delayMs = 300 * attempt; // simple backoff
+          await Future.delayed(Duration(milliseconds: delayMs));
+          continue;
+        }
+
+        // Not recoverable or retries exhausted — rethrow so repository can fall back
+        throw Exception('Failed to fetch machine: $e');
+      }
     }
   }
 
@@ -160,7 +176,6 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getMachineParameters(
       String machineId) async {
     try {
-      print('Supabase: Fetching parameters for machine ID: $machineId');
       
       // Query parameters table directly filtered by machine_id
       final response = await supabase
@@ -168,8 +183,6 @@ class SupabaseService {
           .select()
           .eq('machine_id', machineId)
           .order('name', ascending: true);
-      
-      print('Supabase: Found ${response.length} parameters for machine $machineId');
       
       // Return parameters directly (no transformation needed since structure matches)
       // The parameters table now has all fields including machine_id and current_value
@@ -181,15 +194,10 @@ class SupabaseService {
       }).toList();
       
       if (transformedResponse.isNotEmpty) {
-        print('Supabase: First parameter structure keys: ${transformedResponse[0].keys}');
       }
       
       return List<Map<String, dynamic>>.from(transformedResponse);
     } catch (e) {
-      print('Supabase error in getMachineParameters for machine $machineId: $e');
-      print('Error type: ${e.runtimeType}');
-      print('Error details: ${e.toString()}');
-      
       throw Exception('Failed to fetch machine parameters for machine $machineId: $e');
     }
   }
@@ -311,7 +319,7 @@ class SupabaseService {
   /// Uses local user-specific thresholds instead of Supabase thresholds
   Future<void> checkAndUpdateAlerts() async {
     try {
-      print('Supabase: Checking parameters against thresholds...');
+      
       
       // Initialize local threshold service
       final thresholdService = LocalThresholdService();
@@ -402,7 +410,7 @@ class SupabaseService {
             if (existingAlertById != null && existingAlertById['is_resolved'] != true) {
               await resolveAlert(alertId);
             }
-            print('Supabase: Resolved alerts for $parameterName on $machineName (value back to normal)');
+            
           } else {
             // Create or update alert - use upsert pattern
             final alertData = {
@@ -448,11 +456,11 @@ class SupabaseService {
               }
               
               if (wasResolved) {
-                print('Supabase: Reactivated alert for $parameterName on $machineName');
+                
               } else if (existingSeverity != currentStatus) {
-                print('Supabase: Updated alert status for $parameterName on $machineName from $existingSeverity to $currentStatus');
+                
               } else {
-                print('Supabase: Updated alert for $parameterName on $machineName');
+                
               }
             } else {
               // Alert doesn't exist - create it
@@ -477,13 +485,13 @@ class SupabaseService {
                   );
                 }
                 
-                print('Supabase: Created ${currentStatus} alert for $parameterName on $machineName');
+                
               } catch (e) {
                 // If creation fails due to duplicate key, try to update instead
                 if (e.toString().contains('duplicate key') || e.toString().contains('23505')) {
-                  print('Supabase: Alert creation failed (duplicate), updating instead');
+                  
                   await supabase.from('alerts').update(alertData).eq('id', alertId);
-                  print('Supabase: Updated alert for $parameterName on $machineName');
+                  
                 } else {
                   rethrow;
                 }
@@ -494,16 +502,16 @@ class SupabaseService {
             for (var alert in existingUnresolvedList) {
               if (alert['id'] != alertId) {
                 await resolveAlert(alert['id'] as String);
-                print('Supabase: Resolved duplicate alert ${alert['id']} for $parameterName on $machineName');
+                
               }
             }
           }
         }
       }
       
-      print('Supabase: Finished checking parameters against thresholds');
+      
     } catch (e) {
-      print('Supabase: Error checking and updating alerts: $e');
+      
       throw Exception('Failed to check and update alerts: $e');
     }
   }
@@ -518,7 +526,7 @@ class SupabaseService {
     required DateTime endDate,
   }) async {
     try {
-      print('Supabase: Fetching shifts from ${startDate.toIso8601String().split('T')[0]} to ${endDate.toIso8601String().split('T')[0]}');
+      
       
       // First, check what dates actually exist in the table
       try {
@@ -527,22 +535,22 @@ class SupabaseService {
             .select('shift_date, id')
             .order('shift_date', ascending: false)
             .limit(10);
-        print('Supabase: Sample shifts in table (first 10):');
+        
         if (allShiftsSample.isNotEmpty) {
           for (var shift in allShiftsSample) {
-            print('  - Shift ${shift['id']}: date = ${shift['shift_date']} (type: ${shift['shift_date'].runtimeType})');
+            
           }
         } else {
-          print('  - No shifts found in table at all');
+          
         }
       } catch (e) {
-        print('Supabase: Could not check sample shifts: $e');
+        
       }
       
       final startDateStr = startDate.toIso8601String().split('T')[0];
       final endDateStr = endDate.toIso8601String().split('T')[0];
       
-      print('Supabase: Querying with date range: $startDateStr to $endDateStr');
+      
       
       final response = await supabase
           .from('shifts')
@@ -551,29 +559,29 @@ class SupabaseService {
           .lte('shift_date', endDateStr)
           .order('shift_date', ascending: false);
       
-      print('Supabase: Successfully fetched ${response.length} shifts');
+      
       
       // If no results, try without date filter to see if there's any data
       if (response.isEmpty) {
-        print('Supabase: No shifts found in date range, checking total count...');
+        
         try {
           final allShifts = await supabase.from('shifts').select('id');
-          print('Supabase: Total shifts in table: ${allShifts.length}');
+          
           if (allShifts.isNotEmpty) {
-            print('Supabase: Available shift dates:');
+            
             final dates = await supabase.from('shifts').select('shift_date').order('shift_date');
             final uniqueDates = (dates as List).map((d) => d['shift_date']).toSet();
-            print('Supabase: Unique dates in table: $uniqueDates');
+            
           }
         } catch (e) {
-          print('Supabase: Could not get total count: $e');
+          
         }
       }
       
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print('Supabase: Error fetching shifts: $e');
-      print('Error type: ${e.runtimeType}');
+      
+      
       throw Exception('Failed to fetch shifts: $e');
     }
   }
@@ -581,7 +589,7 @@ class SupabaseService {
   /// Fetch shift details with machine metrics
   Future<Map<String, dynamic>> getShiftDetails(String shiftId) async {
     try {
-      print('Supabase: Fetching shift details for shift ID: $shiftId');
+      
       
       final shiftResponse = await supabase
           .from('shifts')
@@ -594,15 +602,15 @@ class SupabaseService {
           .select()
           .eq('shift_id', shiftId);
 
-      print('Supabase: Successfully fetched shift details with ${metricsResponse.length} machine metrics');
+      
       
       return {
         'shift': shiftResponse,
         'metrics': List<Map<String, dynamic>>.from(metricsResponse),
       };
     } catch (e) {
-      print('Supabase: Error fetching shift details: $e');
-      print('Error type: ${e.runtimeType}');
+      
+      
       throw Exception('Failed to fetch shift details: $e');
     }
   }
@@ -665,8 +673,7 @@ class SupabaseService {
     required DateTime endTime,
   }) async {
     try {
-      print('Supabase: Fetching parameter history for machine $machineId, parameter $parameterName');
-      print('Supabase: Time range: ${startTime.toIso8601String()} to ${endTime.toIso8601String()}');
+      
       
       // First, get the parameter ID by name and machine_id
       final parameterResponse = await supabase
@@ -677,19 +684,19 @@ class SupabaseService {
           .maybeSingle();
       
       if (parameterResponse == null) {
-        print('Supabase: Parameter "$parameterName" not found for machine $machineId');
+        
         return [];
       }
       
       final parameterId = parameterResponse['id'] as String;
-      print('Supabase: Found parameter ID: $parameterId');
+      
       
       // Get current value from parameters table
       final currentValue = (parameterResponse['current_value'] as num?)?.toDouble();
-      print('Supabase: Current value: $currentValue');
+      
       
       // Fetch historical data from history_parameters table
-      print('Supabase: Fetching historical data from history_parameters table');
+      
       final historyResponse = await supabase
           .from('history_parameters')
           .select()
@@ -699,7 +706,7 @@ class SupabaseService {
           .order('last_updated', ascending: true);
       
       final historyList = List<Map<String, dynamic>>.from(historyResponse);
-      print('Supabase: Found ${historyList.length} historical records');
+      
       
       // Build data points from history_parameters
       final dataPoints = <Map<String, dynamic>>[];
@@ -724,7 +731,7 @@ class SupabaseService {
         }
       }
       
-      print('Supabase: Added ${dataPoints.length} data points from history_parameters');
+      
       
       // Add current value as the latest point if available and not already in history
       if (currentValue != null) {
@@ -745,11 +752,11 @@ class SupabaseService {
         return aTime.compareTo(bTime);
       });
       
-      print('Supabase: Found ${dataPoints.length} real data points (no interpolated data generated)');
+      
       
       return dataPoints;
     } catch (e) {
-      print('Supabase: Error fetching parameter history: $e');
+      
       throw Exception('Failed to fetch parameter history: $e');
     }
   }

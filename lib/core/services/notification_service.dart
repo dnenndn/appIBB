@@ -83,7 +83,7 @@ class NotificationService {
   /// Handle notification tap
   void _onNotificationTapped(NotificationResponse response) {
     // Handle notification tap - can navigate to specific screen
-    print('Notification tapped: ${response.payload}');
+    
   }
 
   /// Show critical alert notification

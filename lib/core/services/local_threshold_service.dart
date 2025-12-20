@@ -13,21 +13,20 @@ class LocalThresholdService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_thresholdPrefix$machineId\_$parameterId';
-      
+      final key = '$_thresholdPrefix${machineId}_$parameterId';
+
       final minThreshold = prefs.getDouble('${key}_min');
       final maxThreshold = prefs.getDouble('${key}_max');
-      
+
       if (minThreshold != null && maxThreshold != null) {
         return {
           'min': minThreshold,
           'max': maxThreshold,
         };
       }
-      
+
       return null;
     } catch (e) {
-      print('Error getting threshold: $e');
       return null;
     }
   }
@@ -41,12 +40,12 @@ class LocalThresholdService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_thresholdPrefix$machineId\_$parameterId';
-      
+      final key = '$_thresholdPrefix${machineId}_$parameterId';
+
       await prefs.setDouble('${key}_min', minThreshold);
       await prefs.setDouble('${key}_max', maxThreshold);
     } catch (e) {
-      print('Error saving threshold: $e');
+      // ignore
     }
   }
 
@@ -61,17 +60,17 @@ class LocalThresholdService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_thresholdPrefix$machineId\_$parameterId';
-      
+      final key = '$_thresholdPrefix${machineId}_$parameterId';
+
       // Store critical thresholds as the main thresholds (for backward compatibility)
       await prefs.setDouble('${key}_min', criticalMin);
       await prefs.setDouble('${key}_max', criticalMax);
-      
+
       // Store warning thresholds separately
       await prefs.setDouble('${key}_warning_min', warningMin);
       await prefs.setDouble('${key}_warning_max', warningMax);
     } catch (e) {
-      print('Error saving warning and critical thresholds: $e');
+      // ignore
     }
   }
 
@@ -82,21 +81,20 @@ class LocalThresholdService {
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = '$_thresholdPrefix$machineId\_$parameterId';
-      
+      final key = '$_thresholdPrefix${machineId}_$parameterId';
+
       final warningMin = prefs.getDouble('${key}_warning_min');
       final warningMax = prefs.getDouble('${key}_warning_max');
-      
+
       if (warningMin != null && warningMax != null) {
         return {
           'min': warningMin,
           'max': warningMax,
         };
       }
-      
+
       return null;
     } catch (e) {
-      print('Error getting warning thresholds: $e');
       return null;
     }
   }
@@ -154,17 +152,17 @@ class LocalThresholdService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys();
-      final prefix = '$_thresholdPrefix$machineId\_';
-      
+      final prefix = '$_thresholdPrefix${machineId}_';
+
       final Map<String, Map<String, double>> thresholds = {};
-      
-      for (var key in keys) {
-        if (key.startsWith(prefix) && key.endsWith('_min')) {
-          // Extract parameter ID from key
-          final paramKey = key.substring(prefix.length, key.length - 4); // Remove prefix and '_min'
-          final minThreshold = prefs.getDouble(key);
-          final maxThreshold = prefs.getDouble('$_thresholdPrefix$machineId\_$paramKey\_max');
-          
+
+      for (var k in keys) {
+        if (k.startsWith(prefix) && k.endsWith('_min')) {
+          // Extract parameter ID from key (remove prefix and suffix)
+          final paramKey = k.substring(prefix.length, k.length - '_min'.length);
+          final minThreshold = prefs.getDouble(k);
+          final maxThreshold = prefs.getDouble('${prefix}${paramKey}_max');
+
           if (minThreshold != null && maxThreshold != null) {
             thresholds[paramKey] = {
               'min': minThreshold,
@@ -173,10 +171,9 @@ class LocalThresholdService {
           }
         }
       }
-      
+
       return thresholds;
     } catch (e) {
-      print('Error getting machine thresholds: $e');
       return {};
     }
   }
@@ -187,12 +184,12 @@ class LocalThresholdService {
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys();
       final keysToRemove = keys.where((key) => key.startsWith(_thresholdPrefix)).toList();
-      
+
       for (var key in keysToRemove) {
         await prefs.remove(key);
       }
     } catch (e) {
-      print('Error clearing thresholds: $e');
+      // ignore
     }
   }
 }

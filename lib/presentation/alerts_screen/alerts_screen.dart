@@ -50,6 +50,7 @@ class _AlertsScreenState extends State<AlertsScreen>
   // Alerts data from Supabase
   List<Map<String, dynamic>> _allAlerts = [];
   bool _isLoading = true;
+  String? _errorMessage;
   
   // Track locally acknowledged alerts (user-specific, not stored in DB)
   final Set<String> _locallyAcknowledgedAlerts = {};
@@ -167,9 +168,9 @@ class _AlertsScreenState extends State<AlertsScreen>
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading alerts: $e');
       setState(() {
         _isLoading = false;
+        _errorMessage = e.toString();
       });
     }
   }
@@ -381,12 +382,32 @@ class _AlertsScreenState extends State<AlertsScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                _activeAlerts.isEmpty
-                    ? _buildEmptyStateWithFilters(theme, 'No Active Alerts', 'All alerts are resolved', _activeAlerts)
-                    : _buildAlertsList(theme, _activeAlerts, isHistory: false),
-                _historyAlerts.isEmpty
-                    ? _buildEmptyStateWithFilters(theme, 'No History', 'No acknowledged alerts yet', _historyAlerts)
-                    : _buildAlertsList(theme, _historyAlerts, isHistory: true),
+                _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.error_outline, size: 48, color: AppTheme.getStatusColor('critical')),
+                              SizedBox(height: 16),
+                              Text('Unable to load alerts', style: theme.textTheme.titleMedium),
+                              SizedBox(height: 8),
+                              Text(_errorMessage!, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+                              SizedBox(height: 12),
+                              ElevatedButton(onPressed: () => _loadAlerts(showLoading: true), child: const Text('Retry')),
+                            ],
+                          ),
+                        ),
+                      )
+                    : (_activeAlerts.isEmpty
+                        ? _buildEmptyStateWithFilters(theme, 'No Active Alerts', 'All alerts are resolved', _activeAlerts)
+                        : _buildAlertsList(theme, _activeAlerts, isHistory: false)),
+                _errorMessage != null
+                    ? const SizedBox.shrink()
+                    : (_historyAlerts.isEmpty
+                        ? _buildEmptyStateWithFilters(theme, 'No History', 'No acknowledged alerts yet', _historyAlerts)
+                        : _buildAlertsList(theme, _historyAlerts, isHistory: true)),
               ],
             ),
       bottomNavigationBar: const CustomBottomBar(currentIndex: 2),

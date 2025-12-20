@@ -183,7 +183,6 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading parameter trend data: $e');
       setState(() {
         _errorMessage = 'Failed to load data: $e';
         _isLoading = false;
@@ -222,9 +221,8 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         minThreshold: minThreshold,
         maxThreshold: maxThreshold,
       );
-      print('Threshold saved locally');
     } catch (e) {
-      print('Error saving threshold locally: $e');
+      // ignore save errors
     }
   }
 
@@ -233,6 +231,7 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
     required double warningMax,
     required double criticalMin,
     required double criticalMax,
+    
   }) async {
     if (_machineId == null || _parameterId == null) return;
     
@@ -245,9 +244,11 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         criticalMin: criticalMin,
         criticalMax: criticalMax,
       );
-      print('Warning and critical thresholds saved locally');
+      print('KKKKK warningMin: $warningMin, warningMax: $warningMax, criticalMin: $criticalMin, criticalMax: $criticalMax');
+    
     } catch (e) {
-      print('Error saving warning and critical thresholds locally: $e');
+      print('OOOOOOOO Error saving thresholds: $e');
+      // ignore save errors
     }
   }
 
@@ -263,27 +264,43 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         warningMax: _warningMax,
         parameterMin: _parameterMin,
         parameterMax: _parameterMax,
-        onMinChanged: (value) {
-          setState(() => _minThreshold = value);
-          _saveThresholdLocally(value, _maxThreshold);
-        },
-        onMaxChanged: (value) {
-          setState(() => _maxThreshold = value);
-          _saveThresholdLocally(_minThreshold, value);
-        },
-        onWarningAndCriticalChanged: (warningMin, warningMax, criticalMin, criticalMax) {
+     onMinChanged: (value) {
+        setState(() => _minThreshold = value);
+        _saveThresholdLocally(value, _maxThreshold);
+      },
+
+      onMaxChanged: (value) {
+        setState(() => _maxThreshold = value);
+        _saveThresholdLocally(_minThreshold, value);
+      },
+
+        onSave: (warningMin, warningMax, criticalMin, criticalMax) async {
+          // Persist thresholds when user confirms
+         print('HHHHHHH Saving thresholds: $warningMin, $warningMax, $criticalMin, $criticalMax');
           setState(() {
             _warningMin = warningMin;
             _warningMax = warningMax;
             _minThreshold = criticalMin;
             _maxThreshold = criticalMax;
           });
-          _saveWarningAndCriticalThresholds(
+
+          await _saveWarningAndCriticalThresholds(
             warningMin: warningMin,
             warningMax: warningMax,
             criticalMin: criticalMin,
             criticalMax: criticalMax,
           );
+
+          // Also save simple critical thresholds
+          await _saveThresholdLocally(criticalMin, criticalMax);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Thresholds saved')),
+            );
+          }
+        },
+        onCancel: () {
+          // no-op for now
         },
       ),
     );

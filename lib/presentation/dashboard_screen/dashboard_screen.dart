@@ -25,6 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime _lastSyncTime = DateTime.now();
   bool _isRefreshing = false;
   List<Map<String, dynamic>> _machines = [];
+  String? _errorMessage;
   StreamSubscription? _machinesSubscription;
   Timer? _alertCheckTimer;
   final SupabaseService _supabaseService = SupabaseService();
@@ -54,7 +55,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       // Check and update alerts in background
       _supabaseService.checkAndUpdateAlerts().catchError((error) {
-        print('Error checking alerts: $error');
+        
       });
     });
   }
@@ -66,54 +67,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _machines = List<Map<String, dynamic>>.from(machinesData);
+          _errorMessage = null;
           _sortMachinesByPriority();
         });
       }
     } catch (e) {
-      print('Error loading machines: $e');
-      _initializeMockData();
+      if (mounted) {
+        setState(() {
+          _machines = [];
+          _errorMessage = e.toString();
+        });
+      }
     }
-  }
 
-  void _initializeMockData() {
-    setState(() {
-      _machines = [
-        {
-          "id": "kiln_01",
-          "name": "Kiln 1",
-          "type": "kiln",
-          "status": "normal",
-          "wagons": 42,
-          "avg_push_time": 3.5,
-          "gas_consumption": 342.5,
-          "downtime_minutes": 0,
-          "priority": 1,
-        },
-        {
-          "id": "kiln_02",
-          "name": "Kiln 2",
-          "type": "kiln",
-          "status": "warning",
-          "wagons": 35,
-          "avg_push_time": 4.1,
-          "gas_consumption": 298.7,
-          "downtime_minutes": 12,
-          "priority": 2,
-        },
-        {
-          "id": "dryer_01",
-          "name": "Dryer 1",
-          "type": "dryer",
-          "status": "normal",
-          "gas_consumption": 156.3,
-          "wagons": 28,
-          "avg_cuts_per_minute": 15.8,
-          "downtime_minutes": 0,
-          "priority": 3,
-        },
-      ];
-      _sortMachinesByPriority();
-    });
   }
 
   void _sortMachinesByPriority() {
@@ -155,8 +121,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       },
       onError: (error) {
-        print('Error in real-time subscription: $error');
-        _initializeMockData();
+        if (mounted) {
+          setState(() {
+            _machines = [];
+            _errorMessage = error.toString();
+          });
+        }
       },
       cancelOnError: false,
     );
@@ -173,8 +143,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       await _loadMachinesFromSupabase();
     } catch (e) {
-      print('Error refreshing data: $e');
-      _initializeMockData();
+      if (mounted) {
+        setState(() {
+          _machines = [];
+          _errorMessage = e.toString();
+        });
+      }
     }
 
     if (mounted) {
@@ -399,12 +373,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           SizedBox(height: 2.h),
           Text(
-            'No machines found',
+            _errorMessage != null ? 'Unable to load machines' : 'No machines found',
             style: AppTheme.lightTheme.textTheme.titleMedium,
           ),
           SizedBox(height: 1.h),
           Text(
-            'Add a machine to get started\nCheck your PLC connection and ensure machines are properly configured.',
+            _errorMessage ?? 'Add a machine to get started\nCheck your PLC connection and ensure machines are properly configured.',
             style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
               color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
             ),

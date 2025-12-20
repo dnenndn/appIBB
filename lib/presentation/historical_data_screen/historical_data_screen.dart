@@ -34,6 +34,7 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
 
   // Shifts data loaded from Supabase
   List<Map<String, dynamic>> _allShifts = [];
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -44,35 +45,35 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
   Future<void> _loadShifts() async {
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      print('HistoricalData: Loading shifts from Supabase...');
       final shifts = await _shiftRepository.getShifts(
         startDate: _selectedStartDate,
         endDate: _selectedEndDate,
       );
-      print('HistoricalData: Loaded ${shifts.length} shifts from Supabase');
 
       // Transform Supabase data to match UI format
       final transformedShifts = await _transformShifts(shifts);
-      
+
       if (mounted) {
         setState(() {
           _allShifts = transformedShifts;
           _isLoading = false;
+          _errorMessage = null;
         });
       }
     } catch (e) {
-      print('HistoricalData: Error loading shifts: $e');
       if (mounted) {
         setState(() {
           _allShifts = [];
           _isLoading = false;
+          _errorMessage = e.toString();
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load historical data: $e'),
+            content: const Text('Failed to load historical data'),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppTheme.getStatusColor('critical'),
           ),
@@ -93,7 +94,6 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
           final shiftDetails = await _shiftRepository.getShiftDetails(shift['id'] as String);
           metrics = shiftDetails['metrics'] as List<dynamic>? ?? [];
         } catch (e) {
-          print('HistoricalData: Could not fetch metrics for shift ${shift['id']}: $e');
           // Continue without metrics - we'll show empty machines array
           metrics = [];
         }
@@ -183,8 +183,7 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
           'alertSummary': alertSummary,
         });
       } catch (e, stackTrace) {
-        print('HistoricalData: Error transforming shift ${shift['id']}: $e');
-        print('HistoricalData: Stack trace: $stackTrace');
+        
         // Skip this shift if transformation fails
         continue;
       }
@@ -513,10 +512,35 @@ class _HistoricalDataScreenState extends State<HistoricalDataScreen> {
                     child: CircularProgressIndicator(),
                   )
                 : _filteredShifts.isEmpty
-                    ? const EmptyStateWidget(
-                        message: 'No Data Available',
-                        suggestion: 'Try adjusting your date range or shift filter',
-                      )
+                    ? (_errorMessage != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.error_outline, size: 48, color: AppTheme.getStatusColor('critical')),
+                                  SizedBox(height: 16),
+                                  Text('Unable to load historical data', style: theme.textTheme.titleMedium),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    _errorMessage!,
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                  SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: _loadShifts,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : const EmptyStateWidget(
+                            message: 'No Data Available',
+                            suggestion: 'Try adjusting your date range or shift filter',
+                          ))
                     : RefreshIndicator(
                     onRefresh: _refreshData,
                     child: ListView.builder(

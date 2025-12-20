@@ -31,6 +31,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   
   // Machine data fetched from Supabase
   Map<String, dynamic> _machineData = {};
+  String? _errorMessage;
   
   // Parameter data organized by categories, fetched from Supabase
   Map<String, List<Map<String, dynamic>>> _parametersByCategory = {};
@@ -71,26 +72,26 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       
       if (args != null && args.containsKey('id')) {
         final machineId = args['id'] as String;
-        print('Loading data for machine ID: $machineId');
+        
         
         // Load machine data from Supabase
         final machineRepo = MachineRepository();
         final machine = await machineRepo.getMachineById(machineId);
-        print('Loaded machine data: $machine');
+        
         
         // Load parameters for this machine
         final parameters = await machineRepo.getMachineParameters(machineId);
-        print('Loaded ${parameters.length} parameters');
+        
         
         // Process parameters into categories (now async) - this will calculate status correctly
         final categorizedParams = await _organizeParametersByCategory(parameters);
-        print('Organized parameters into ${categorizedParams.length} categories');
+        
         
         if (mounted) {
           // Preserve current tab index if tab controller already exists
           int? previousTabIndex;
           String? previousTabCategory;
-          try {
+            try {
             if (_tabController.length > 0 && _tabController.index < _tabController.length) {
               previousTabIndex = _tabController.index;
               // Get the category name at the current tab index
@@ -101,7 +102,6 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
             }
           } catch (e) {
             // Tab controller not initialized yet, that's okay
-            print('Tab controller not initialized yet: $e');
           }
           
           setState(() {
@@ -156,19 +156,11 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         }
       }
     } catch (e) {
-      print('Error loading machine data: $e');
-      // Show error message to user
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _errorMessage = e.toString();
         });
-        Fluttertoast.showToast(
-          msg: "Failed to load machine data",
-          toastLength: Toast.LENGTH_SHORT,
-          gravity: ToastGravity.BOTTOM,
-          backgroundColor: AppTheme.getStatusColor('critical'),
-          textColor: Colors.white,
-        );
       }
     }
   }
@@ -177,7 +169,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       List<Map<String, dynamic>> parameters) async {
     final categorized = <String, List<Map<String, dynamic>>>{};
     
-    print('Organizing ${parameters.length} parameters');
+    
     
     final machineId = _machineData['id'] as String?;
     final thresholdService = LocalThresholdService();
@@ -206,8 +198,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     
     for (var param in parameters) {
       try {
-        // Log the parameter structure for debugging
-        print('Processing parameter: $param');
+        
         
         // Parameters table now has all fields directly (no nested 'parameters' object)
         final paramName = param['name'] as String? ?? 'Unknown';
@@ -260,13 +251,12 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         }
         categorized[paramType]!.add(paramEntry);
       } catch (e) {
-        print('Error processing parameter: $param, error: $e');
+        
         // Skip malformed parameters instead of crashing
         continue;
       }
     }
     
-    print('Organized parameters into categories: ${categorized.keys}');
     return categorized;
   }
   
@@ -305,7 +295,6 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         'warningMax': warningMax,
       };
     } catch (e) {
-      print('Error getting thresholds: $e');
       // Return defaults
       return {
         'criticalMin': currentValue - 10,
@@ -356,7 +345,6 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       
       return 'normal';
     } catch (e) {
-      print('Error determining parameter status: $e');
       return 'unknown';
     }
   }
@@ -390,7 +378,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         }
       },
       onError: (error) {
-        print('Error in machine real-time subscription: $error');
+        
       },
     );
     
@@ -416,7 +404,6 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         }
       } catch (e) {
         // Tab controller not initialized yet, that's okay
-        print('Tab controller not initialized in refresh: $e');
       }
       
       // Reload data
@@ -457,7 +444,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         );
       }
     } catch (e) {
-      print('Error refreshing data: $e');
+      
       if (mounted) {
         Fluttertoast.showToast(
           msg: "Failed to refresh data",
@@ -612,8 +599,39 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
           title: 'Machine Details',
           onBackPressed: () => Navigator.pop(context),
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
+        body: Center(
+          child: _isLoading
+              ? const CircularProgressIndicator()
+              : _errorMessage != null
+                  ? Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, size: 48, color: AppTheme.getStatusColor('critical')),
+                          const SizedBox(height: 16),
+                          Text('Unable to load machine data', style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 8),
+                          Text(
+                            _errorMessage ?? '',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                _isLoading = true;
+                                _errorMessage = null;
+                              });
+                              _loadMachineData();
+                            },
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const Text('No machine data'),
         ),
       );
     }
