@@ -243,6 +243,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
           "timestamp": DateTime.parse(timestampStr),
           "status": status,
           "trendData": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, currentValue ?? 0.0], // Simplified trend data
+          // expose critical thresholds as range for UI
+          "rangeMin": (thresholdResults.containsKey(param['id']) ? (thresholdResults[param['id']]!['criticalMin']) : (currentValue != null ? currentValue - 10 : 0)),
+          "rangeMax": (thresholdResults.containsKey(param['id']) ? (thresholdResults[param['id']]!['criticalMax']) : (currentValue != null ? currentValue + 10 : 100)),
         };
         
         // Add to appropriate category

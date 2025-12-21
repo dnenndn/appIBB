@@ -3,15 +3,15 @@ import 'package:sizer/sizer.dart';
 
 import '../../../core/app_export.dart';
 
-/// Parameter card widget displaying individual PLC parameter with real-time updates
-/// Implements color-coded backgrounds based on threshold status
 class ParameterCardWidget extends StatelessWidget {
   final String parameterName;
   final String currentValue;
   final String unit;
   final DateTime timestamp;
-  final String status; // 'normal', 'warning', 'critical'
+  final String status;
   final List<double> trendData;
+  final double? rangeMin;
+  final double? rangeMax;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
@@ -23,9 +23,22 @@ class ParameterCardWidget extends StatelessWidget {
     required this.timestamp,
     required this.status,
     required this.trendData,
+    this.rangeMin,
+    this.rangeMax,
     required this.onTap,
     required this.onLongPress,
   });
+
+  // Responsive sizing calculations
+  double get _cardPadding => 2.w.clamp(8, 16).toDouble();
+  double get _elementSpacing => 1.w.clamp(4, 10).toDouble();
+  double get _innerSpacing => 0.8.w.clamp(3, 8).toDouble();
+  
+  // Font sizes with responsive scaling
+  double get _titleFontSize => 14.sp.clamp(10, 18).toDouble();
+  double get _valueFontSize => 20.sp.clamp(14, 28).toDouble();
+  double get _unitFontSize => 10.sp.clamp(8, 12).toDouble();
+  double get _rangeFontSize => 11.sp.clamp(9, 13).toDouble(); // Increased from 9.sp
 
   Color _getStatusColor(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -34,15 +47,12 @@ class ParameterCardWidget extends StatelessWidget {
 
   Color _getBackgroundColor(BuildContext context) {
     final statusColor = _getStatusColor(context);
-    // More prominent background color based on status
-    switch (status.toLowerCase()) {
-      case 'critical':
-        return statusColor.withValues(alpha: 0.15);
-      case 'warning':
-        return statusColor.withValues(alpha: 0.12);
-      default:
-        return statusColor.withValues(alpha: 0.08);
-    }
+    final alpha = switch (status.toLowerCase()) {
+      'critical' => 0.15,
+      'warning' => 0.12,
+      _ => 0.08,
+    };
+    return statusColor.withValues(alpha: alpha);
   }
 
   @override
@@ -50,143 +60,226 @@ class ParameterCardWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final statusColor = _getStatusColor(context);
     final backgroundColor = _getBackgroundColor(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        margin: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: statusColor.withValues(alpha: status == 'critical' ? 0.8 : status == 'warning' ? 0.6 : 0.3),
-            width: status == 'critical' ? 2.5 : status == 'warning' ? 2.0 : 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: statusColor.withValues(alpha: status == 'critical' ? 0.4 : status == 'warning' ? 0.3 : 0.2),
-              blurRadius: status == 'critical' ? 12 : status == 'warning' ? 10 : 8,
-              offset: const Offset(0, 2),
+    
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate appropriate content sizes based on available space
+        final bool showRangeInfo = rangeMin != null && rangeMax != null;
+        final double contentHeight = constraints.maxHeight;
+        final bool isCompact = contentHeight < 120;
+        
+        return GestureDetector(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Container(
+            margin: EdgeInsets.zero,
+            padding: EdgeInsets.all(_cardPadding),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: statusColor.withValues(
+                  alpha: status == 'critical' 
+                    ? 0.8 
+                    : status == 'warning' 
+                      ? 0.6 
+                      : 0.3
+                ),
+                width: status == 'critical' 
+                  ? 2.0 
+                  : status == 'warning' 
+                    ? 1.6 
+                    : 1.0,
+              ),
             ),
-          ],
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(3.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: IntrinsicHeight(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: Text(
-                      parameterName,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.5.h),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: statusColor,
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        SizedBox(width: 1.w),
-                        Text(
-                          status.toUpperCase(),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: statusColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 2.h),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
+                  // Parameter Name - Always visible
+                  Flexible(
                     flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          currentValue,
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: statusColor,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        parameterName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontSize: _titleFontSize,
+                          height: 1.2,
                         ),
-                        SizedBox(height: 0.5.h),
-                        Text(
-                          unit,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  
+                  SizedBox(height: _elementSpacing),
+                  
+                  // Main Value Display with Unit inline
+                  Flexible(
+                    flex: 3,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        // Current Value
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              currentValue,
+                              style: theme.textTheme.headlineLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: statusColor,
+                                fontSize: _valueFontSize,
+                                height: 1.1,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                        
+                        SizedBox(width: _innerSpacing / 2),
+                        
+                        // Unit inline
+                        Flexible(
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 2.0), // Slight baseline adjustment
+                            child: Text(
+                              unit,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                fontSize: _unitFontSize * 1.2, // Slightly larger since it's inline
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Expanded(
-                    flex: 1,
-                    child: SizedBox(
-                      height: 6.h,
-                      child: CustomPaint(
-                        painter: _SparklinePainter(
-                          data: trendData,
-                          color: statusColor,
-                        ),
+                  
+                  // Conditional Range Information with more space
+                  if (showRangeInfo && !isCompact) ...[
+                    SizedBox(height: _elementSpacing * 1.2), // Increased spacing
+                    
+                    Flexible(
+                      flex: 2,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Range Text - Larger and more prominent
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'Range: ',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
+                                      fontSize: _rangeFontSize * 0.9,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${rangeMin!.toStringAsFixed(0)}-${rangeMax!.toStringAsFixed(0)} ${unit}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      fontSize: _rangeFontSize,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          
+                          SizedBox(height: _innerSpacing * 1.2),
+                          
+                          // Progress Bar - Slightly thicker
+                          Builder(builder: (context) {
+                            final current = double.tryParse(currentValue) ?? rangeMin!;
+                            final min = rangeMin!;
+                            final max = rangeMax!;
+                            final pct = ((current - min) / (max - min)).clamp(0.0, 1.0);
+                            
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: SizedBox(
+                                height: 5.h.clamp(4, 7).toDouble(), // Increased from 4.h
+                                width: double.infinity,
+                                child: LinearProgressIndicator(
+                                  value: pct,
+                                  minHeight: 5.h.clamp(4, 7).toDouble(),
+                                  backgroundColor: theme.colorScheme.onSurface.withOpacity(0.1),
+                                  valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 1.h),
-              Row(
-                children: [
-                  CustomIconWidget(
-                    iconName: 'access_time',
-                    size: 14,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  SizedBox(width: 1.w),
-                  Text(
-                    _formatTimestamp(timestamp),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  ],
+                  
+                  // Compact alternative for range info
+                  if (showRangeInfo && isCompact) ...[
+                    SizedBox(height: _innerSpacing),
+                    Flexible(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '${rangeMin!.toStringAsFixed(0)}-${rangeMax!.toStringAsFixed(0)} ',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: _rangeFontSize * 0.9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            unit,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
+                              fontSize: _rangeFontSize * 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
+                  
+                  // Timestamp - Now has more room
+                  if (constraints.maxHeight > 140) ...[ // Lowered threshold from 160
+                    SizedBox(height: _innerSpacing),
+                    Flexible(
+                      child: Text(
+                        _formatTimestamp(timestamp),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                          fontSize: _rangeFontSize * 0.85,
+                        ),
+                        maxLines: 1,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
                 ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -201,57 +294,7 @@ class ParameterCardWidget extends StatelessWidget {
     } else if (difference.inHours < 24) {
       return '${difference.inHours}h ago';
     } else {
-      return '${timestamp.day}/${timestamp.month}/${timestamp.year} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
     }
-  }
-}
-
-/// Custom painter for mini trend sparkline
-class _SparklinePainter extends CustomPainter {
-  final List<double> data;
-  final Color color;
-
-  _SparklinePainter({
-    required this.data,
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (data.isEmpty || data.length < 2) return;
-
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path();
-    final maxValue = data.reduce((a, b) => a > b ? a : b);
-    final minValue = data.reduce((a, b) => a < b ? a : b);
-    final range = maxValue - minValue;
-
-    if (range == 0) return;
-
-    final stepX = size.width / (data.length - 1);
-
-    for (int i = 0; i < data.length; i++) {
-      final x = i * stepX;
-      final normalizedValue = (data[i] - minValue) / range;
-      final y = size.height - (normalizedValue * size.height);
-
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
-    return oldDelegate.data != data || oldDelegate.color != color;
   }
 }

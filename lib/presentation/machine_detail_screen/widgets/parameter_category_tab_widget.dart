@@ -42,8 +42,16 @@ class ParameterCategoryTabWidget extends StatelessWidget {
       );
     }
 
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(vertical: 1.h),
+    return GridView.builder(
+      padding: EdgeInsets.symmetric(vertical: 1.h, horizontal: 2.w),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 1.5.h,
+        crossAxisSpacing: 2.w,
+        // Reduce aspect ratio so cards are taller (width / height).
+        // Smaller value -> taller cards which allows larger text.
+        childAspectRatio: 1.5,
+      ),
       itemCount: parameters.length,
       itemBuilder: (context, index) {
         final parameter = parameters[index];
@@ -54,6 +62,8 @@ class ParameterCategoryTabWidget extends StatelessWidget {
           timestamp: parameter['timestamp'] as DateTime,
           status: parameter['status'] as String,
           trendData: (parameter['trendData'] as List).cast<double>(),
+          rangeMin: (parameter['rangeMin'] as num?)?.toDouble(),
+          rangeMax: (parameter['rangeMax'] as num?)?.toDouble(),
           onTap: () => onParameterTap(parameter),
           onLongPress: () => onParameterLongPress(parameter),
         );
