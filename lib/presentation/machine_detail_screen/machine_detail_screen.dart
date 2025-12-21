@@ -7,6 +7,7 @@ import '../../core/app_export.dart';
 import '../../core/repositories/data_repositories.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/local_threshold_service.dart';
+import '../../core/services/local_monitor_service.dart';
 import '../../core/utils/status_calculator.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/custom_bottom_bar.dart';
@@ -41,6 +42,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   StreamSubscription? _machineSubscription;
   Timer? _parameterRefreshTimer;
   final SupabaseService _supabaseService = SupabaseService();
+  final LocalMonitorService _monitorService = LocalMonitorService();
+  bool _monitoredFilterApplied = false; // true when user saved a monitored preference (even empty)
+
 
   @override
   void initState() {
@@ -81,10 +85,13 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         
         // Load parameters for this machine
         final parameters = await machineRepo.getMachineParameters(machineId);
-        
-        
+
+        // Load monitored preference (nullable): null = no preference -> show all
+        final monitoredPref = await _monitorService.getMonitoredParameterIds(machineId);
+        _monitoredFilterApplied = monitoredPref != null;
+
         // Process parameters into categories (now async) - this will calculate status correctly
-        final categorizedParams = await _organizeParametersByCategory(parameters);
+        final categorizedParams = await _organizeParametersByCategory(parameters, monitoredPref);
         
         
         if (mounted) {
@@ -166,10 +173,21 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   }
 
   Future<Map<String, List<Map<String, dynamic>>>> _organizeParametersByCategory(
-      List<Map<String, dynamic>> parameters) async {
+      List<Map<String, dynamic>> parameters, List<String>? monitoredPref) async {
     final categorized = <String, List<Map<String, dynamic>>>{};
-    
-    
+    // If user has selected monitored parameters for this machine, filter the list.
+    // monitoredPref: null => no preference (show all), empty list => explicitly selected none
+    try {
+      if (monitoredPref != null) {
+        final monitored = monitoredPref.toSet();
+        parameters = parameters.where((p) {
+          final id = p['id'] as String?;
+          return id != null && monitored.contains(id);
+        }).toList();
+      }
+    } catch (_) {
+      // ignore and show all if monitor prefs fail
+    }
     
     final machineId = _machineData['id'] as String?;
     final thresholdService = LocalThresholdService();
@@ -261,6 +279,124 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     }
     
     return categorized;
+  }
+
+  Future<void> _showParameterSelection() async {
+    final machineId = _machineData['id'] as String?;
+    if (machineId == null) return;
+
+    final repo = MachineRepository();
+    List<Map<String, dynamic>> allParams;
+    try {
+      allParams = await repo.getMachineParameters(machineId);
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Failed to load parameters');
+      return;
+    }
+
+    final monitoredList = await _monitorService.getMonitoredParameterIds(machineId);
+    final allIds = allParams.map((p) => p['id'] as String).whereType<String>().toSet();
+    final selectedInitial = monitoredList == null ? Set<String>.from(allIds) : Set<String>.from(monitoredList);
+
+    final result = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      builder: (context) {
+        final selected = Set<String>.from(selectedInitial);
+        return StatefulBuilder(builder: (context, setState) {
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Select Parameters', style: TextStyle(fontWeight: FontWeight.w600)),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              // toggle select all
+                              final allIds = allParams.map((p) => p['id'] as String).toSet();
+                              if (selected.length == allIds.length) {
+                                selected.clear();
+                              } else {
+                                selected.clear();
+                                selected.addAll(allIds);
+                              }
+                            });
+                          },
+                          child: const Text('Toggle All'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.6,
+                      child: ListView.builder(
+                        itemCount: allParams.length,
+                        itemBuilder: (ctx, i) {
+                          final p = allParams[i];
+                          final id = p['id'] as String?;
+                          final name = p['name'] as String? ?? 'Unknown';
+                          final checked = id != null && selected.contains(id);
+                          return CheckboxListTile(
+                            value: checked,
+                            title: Text(name),
+                            onChanged: id == null ? null : (v) {
+                              setState(() {
+                                if (v == true) selected.add(id); else selected.remove(id);
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              if (selected.length == allIds.length) {
+                                await _monitorService.clearMonitoredForMachine(machineId);
+                              } else {
+                                await _monitorService.setMonitoredParameterIds(machineId, selected.toList());
+                              }
+                              Navigator.pop(context, selected.toList());
+                            },
+                            child: const Text('Save'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+
+    if (result != null) {
+      await _loadMachineData();
+      Fluttertoast.showToast(msg: 'Monitored parameters updated');
+    }
   }
   
   Future<Map<String, double?>> _getThresholdsForParameter({
@@ -595,6 +731,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final bool noParametersSelected = _monitoredFilterApplied &&
+      (_parametersByCategory.isEmpty || _parametersByCategory.values.every((list) => list.isEmpty));
+
     // Show loading indicator while data is being fetched
     if (_machineData.isEmpty) {
       return Scaffold(
@@ -645,6 +784,15 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         onBackPressed: () => Navigator.pop(context),
         actions: [
           IconButton(
+            icon: Icon(
+              Icons.view_list,
+              size: 24,
+              color: theme.appBarTheme.foregroundColor ?? Colors.white,
+            ),
+            onPressed: _showParameterSelection,
+            tooltip: 'Select Parameters',
+          ),
+          IconButton(
             icon: CustomIconWidget(
               iconName: 'refresh',
               size: 24,
@@ -663,31 +811,68 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
             status: _machineData['status'] as String? ?? 'unknown',
             lastUpdated: _lastUpdated,
           ),
-          Container(
-            color: theme.colorScheme.surface,
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabs: _parametersByCategory.keys
-                  .map((category) => Tab(text: category))
-                  .toList(),
-            ),
-          ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refreshData,
-              child: TabBarView(
-                controller: _tabController,
-                children: _parametersByCategory.entries.map((entry) {
-                  return ParameterCategoryTabWidget(
-                    parameters: entry.value,
-                    onParameterTap: _handleParameterTap,
-                    onParameterLongPress: _handleParameterLongPress,
-                  );
-                }).toList(),
+
+          // If user explicitly selected zero parameters, show centered message
+          if (noParametersSelected) ...[
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.info_outline, size: 56, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No parameters selected yet',
+                        style: theme.textTheme.titleMedium,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Select which parameters you want to monitor for this machine.',
+                        style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 18),
+                      ElevatedButton(
+                        onPressed: _showParameterSelection,
+                        child: const Text('Select Parameters'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
+          ] else ...[
+            Container(
+              color: theme.colorScheme.surface,
+              child: TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: _parametersByCategory.keys
+                    .map((category) => Tab(text: category))
+                    .toList(),
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refreshData,
+                child: TabBarView(
+                  controller: _tabController,
+                  children: _parametersByCategory.entries.map<Widget>((entry) {
+                    return ParameterCategoryTabWidget(
+                      parameters: entry.value,
+                      onParameterTap: _handleParameterTap,
+                      onParameterLongPress: _handleParameterLongPress,
+                      monitoredFilterApplied: _monitoredFilterApplied,
+                      onOpenSelection: _showParameterSelection,
+                    );
+                  }).toList(growable: false),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

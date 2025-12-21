@@ -10,17 +10,52 @@ class ParameterCategoryTabWidget extends StatelessWidget {
   final List<Map<String, dynamic>> parameters;
   final Function(Map<String, dynamic>) onParameterTap;
   final Function(Map<String, dynamic>) onParameterLongPress;
+  final bool monitoredFilterApplied;
+  final VoidCallback? onOpenSelection;
+  final void Function(String)? onDelete;
 
   const ParameterCategoryTabWidget({
     super.key,
     required this.parameters,
     required this.onParameterTap,
     required this.onParameterLongPress,
+    this.onDelete,
+    this.monitoredFilterApplied = false,
+    this.onOpenSelection,
   });
 
   @override
   Widget build(BuildContext context) {
     if (parameters.isEmpty) {
+      // Show a different message when the empty state is due to monitored-filter
+      if (monitoredFilterApplied) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CustomIconWidget(
+                iconName: 'info_outline',
+                size: 48,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              SizedBox(height: 2.h),
+              Text(
+                'No parameters selected for this category',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 2.h),
+              ElevatedButton(
+                onPressed: onOpenSelection,
+                child: const Text('Select Parameters'),
+              ),
+            ],
+          ),
+        );
+      }
+
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

@@ -633,6 +633,15 @@ class SupabaseService {
     }
   }
 
+  /// Delete a parameter by id
+  Future<void> deleteParameter(String parameterId) async {
+    try {
+      await supabase.from('parameters').delete().eq('id', parameterId);
+    } catch (e) {
+      throw Exception('Failed to delete parameter $parameterId: $e');
+    }
+  }
+
   /// Fetch thresholds for machine
   Future<List<Map<String, dynamic>>> getMachineThresholds(
       String machineId) async {
