@@ -435,23 +435,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
-        // App logo
+        // App logo (larger per design request)
         Image.asset(
           'assets/images/img_app_logo.png',
-          width: 30.w,
-          height: 30.w,
+          width: 50.w,
+          height: 50.w,
           fit: BoxFit.contain,
         ),
-        SizedBox(height: 3.h),
-        // App name
-        Text(
-          'BrickMonitor Pro',
-          style: AppTheme.lightTheme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: AppTheme.lightTheme.colorScheme.primary,
-          ),
-        ),
-        SizedBox(height: 1.h),
+        SizedBox(height: 2.h),
         // Security badge
         Container(
           padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
@@ -632,6 +623,7 @@ class _LoginScreenState extends State<LoginScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFB22222), // Red brick color
                 foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 4.w),
               ),
               child: _isLoading
                   ? SizedBox(
@@ -648,6 +640,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       'Login',
                       style: AppTheme.lightTheme.textTheme.labelLarge?.copyWith(
                         color: Colors.white,
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
             ),
