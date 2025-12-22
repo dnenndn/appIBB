@@ -255,6 +255,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         
         // Create parameter entry
         final paramEntry = {
+          'id': param['id'] as String?,
           "name": paramName,
           "value": currentValue != null ? currentValue.toStringAsFixed(2) : "N/A",
           "unit": paramUnit,
@@ -658,6 +659,28 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     );
   }
 
+  Future<void> _handleDeleteParameter(String parameterId) async {
+    final machineId = _machineData['id'] as String?;
+    if (machineId == null) return;
+
+    try {
+      final currentPref = await _monitorService.getMonitoredParameterIds(machineId);
+
+      // If no preference exists, build the explicit set from current loaded params
+      final allIds = _parametersByCategory.values.expand((e) => e).map((p) => p['id'] as String?).whereType<String>().toSet();
+
+      final Set<String> base = currentPref?.toSet() ?? allIds;
+      base.remove(parameterId);
+
+      // Save resulting set (may be empty)
+      await _monitorService.setMonitoredParameterIds(machineId, base.toList());
+      await _loadMachineData();
+      Fluttertoast.showToast(msg: 'Parameter removed');
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Failed to remove parameter');
+    }
+  }
+
   void _showMachineControls() {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
@@ -867,6 +890,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
                       onParameterLongPress: _handleParameterLongPress,
                       monitoredFilterApplied: _monitoredFilterApplied,
                       onOpenSelection: _showParameterSelection,
+                      onDelete: _handleDeleteParameter,
                     );
                   }).toList(growable: false),
                 ),

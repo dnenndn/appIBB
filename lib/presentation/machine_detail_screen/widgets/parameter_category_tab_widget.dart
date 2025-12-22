@@ -91,6 +91,7 @@ class ParameterCategoryTabWidget extends StatelessWidget {
       itemBuilder: (context, index) {
         final parameter = parameters[index];
         return ParameterCardWidget(
+          parameterId: parameter['id'] as String?,
           parameterName: parameter['name'] as String,
           currentValue: parameter['value'] as String,
           unit: parameter['unit'] as String,
@@ -100,7 +101,10 @@ class ParameterCategoryTabWidget extends StatelessWidget {
           rangeMin: (parameter['rangeMin'] as num?)?.toDouble(),
           rangeMax: (parameter['rangeMax'] as num?)?.toDouble(),
           onTap: () => onParameterTap(parameter),
-          onLongPress: () => onParameterLongPress(parameter),
+          onDelete: () {
+            final id = parameter['id'] as String?;
+            if (id != null) onDelete?.call(id);
+          },
         );
       },
     );
