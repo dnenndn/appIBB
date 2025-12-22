@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+// Supabase client usage handled via SupabaseService; remove direct supabase_flutter import
 
 import '../../../core/app_export.dart';
 import '../../../core/services/supabase_service.dart';

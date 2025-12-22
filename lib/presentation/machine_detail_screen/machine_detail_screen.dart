@@ -8,7 +8,7 @@ import '../../core/repositories/data_repositories.dart';
 import '../../core/services/supabase_service.dart';
 import '../../core/services/local_threshold_service.dart';
 import '../../core/services/local_monitor_service.dart';
-import '../../core/utils/status_calculator.dart';
+// status_calculator not used here; remove import
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import './widgets/machine_controls_bottom_sheet_widget.dart';
@@ -25,7 +25,7 @@ class MachineDetailScreen extends StatefulWidget {
 
 class _MachineDetailScreenState extends State<MachineDetailScreen>
     with TickerProviderStateMixin {
-  late TabController _tabController;
+  TabController? _tabController;
   bool _isRefreshing = false;
   DateTime _lastUpdated = DateTime.now();
   bool _isLoading = true;
@@ -99,17 +99,17 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
           int? previousTabIndex;
           String? previousTabCategory;
             try {
-            if (_tabController.length > 0 && _tabController.index < _tabController.length) {
-              previousTabIndex = _tabController.index;
-              // Get the category name at the current tab index
-              final categoryList = _parametersByCategory.keys.toList();
-              if (previousTabIndex < categoryList.length) {
-                previousTabCategory = categoryList[previousTabIndex];
+              if ((_tabController?.length ?? 0) > 0 && (_tabController?.index ?? 0) < (_tabController?.length ?? 0)) {
+                previousTabIndex = _tabController?.index;
+                // Get the category name at the current tab index
+                final categoryList = _parametersByCategory.keys.toList();
+                if ((previousTabIndex ?? 0) < categoryList.length) {
+                  previousTabCategory = categoryList[previousTabIndex ?? 0];
+                }
               }
+            } catch (e) {
+              // Tab controller not initialized yet, that's okay
             }
-          } catch (e) {
-            // Tab controller not initialized yet, that's okay
-          }
           
           setState(() {
             _machineData = machine;
@@ -123,37 +123,28 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
             
             // Check if tab controller needs to be recreated
             bool needsRecreation = false;
-            try {
-              // Try to access length to see if controller is valid
-              if (_tabController.length != categoryCount) {
-                needsRecreation = true;
-              }
-            } catch (e) {
-              // Controller is not initialized or disposed
+            // If controller is null or its length differs, recreate it
+            if ((_tabController?.length ?? -1) != categoryCount) {
               needsRecreation = true;
             }
-            
+
             if (needsRecreation) {
-              try {
-                _tabController.dispose();
-              } catch (e) {
-                // Controller might already be disposed
-              }
+              _tabController?.dispose();
               _tabController = TabController(
                 length: categoryCount,
                 vsync: this,
               );
-              
+
               // Restore previous tab by category name if possible, otherwise by index
               if (previousTabCategory != null) {
                 final newIndex = categoryList.indexOf(previousTabCategory);
                 if (newIndex >= 0 && newIndex < categoryCount) {
-                  _tabController.index = newIndex;
+                  _tabController?.index = newIndex;
                 } else if (previousTabIndex != null && previousTabIndex < categoryCount) {
-                  _tabController.index = previousTabIndex;
+                  _tabController?.index = previousTabIndex;
                 }
               } else if (previousTabIndex != null && previousTabIndex < categoryCount) {
-                _tabController.index = previousTabIndex;
+                _tabController?.index = previousTabIndex;
               }
             }
           });
@@ -491,7 +482,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     _parametersSubscription?.cancel();
     _machineSubscription?.cancel();
     _parameterRefreshTimer?.cancel();
@@ -535,11 +526,11 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       int? currentTabIndex;
       String? currentTabCategory;
       try {
-        if (_tabController.length > 0 && _tabController.index < _tabController.length) {
-          currentTabIndex = _tabController.index;
+        if ((_tabController?.length ?? 0) > 0 && (_tabController?.index ?? 0) < (_tabController?.length ?? 0)) {
+          currentTabIndex = _tabController?.index;
           final categoryList = _parametersByCategory.keys.toList();
-          if (currentTabIndex < categoryList.length) {
-            currentTabCategory = categoryList[currentTabIndex];
+          if ((currentTabIndex ?? 0) < categoryList.length) {
+            currentTabCategory = categoryList[currentTabIndex ?? 0];
           }
         }
       } catch (e) {
@@ -553,10 +544,10 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       if (mounted && currentTabCategory != null) {
         final categoryList = _parametersByCategory.keys.toList();
         final newIndex = categoryList.indexOf(currentTabCategory);
-        if (newIndex >= 0 && newIndex < _tabController.length) {
-          _tabController.index = newIndex;
-        } else if (currentTabIndex != null && currentTabIndex < _tabController.length) {
-          _tabController.index = currentTabIndex;
+        if (newIndex >= 0 && newIndex < (_tabController?.length ?? 0)) {
+          _tabController?.index = newIndex;
+        } else if (currentTabIndex != null && currentTabIndex < (_tabController?.length ?? 0)) {
+          _tabController?.index = currentTabIndex;
         }
       }
     });

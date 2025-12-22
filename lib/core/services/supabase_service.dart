@@ -526,62 +526,47 @@ class SupabaseService {
     required DateTime endDate,
   }) async {
     try {
-      
-      
-      // First, check what dates actually exist in the table
+      // Probe the table for any sample dates (non-fatal)
       try {
         final allShiftsSample = await supabase
             .from('shifts')
             .select('shift_date, id')
             .order('shift_date', ascending: false)
             .limit(10);
-        
-        if (allShiftsSample.isNotEmpty) {
-          for (var shift in allShiftsSample) {
-            
-          }
-        } else {
-          
+        if (allShiftsSample != null && allShiftsSample.isNotEmpty) {
+          // probe returned results; no action needed
         }
-      } catch (e) {
-        
+      } catch (probeError) {
+        // ignore probe errors
+        final _probeErr = probeError;
       }
-      
+
       final startDateStr = startDate.toIso8601String().split('T')[0];
       final endDateStr = endDate.toIso8601String().split('T')[0];
-      
-      
-      
+
       final response = await supabase
           .from('shifts')
           .select()
           .gte('shift_date', startDateStr)
           .lte('shift_date', endDateStr)
           .order('shift_date', ascending: false);
-      
-      
-      
+
       // If no results, try without date filter to see if there's any data
-      if (response.isEmpty) {
-        
+      if (response == null || (response is List && response.isEmpty)) {
         try {
           final allShifts = await supabase.from('shifts').select('id');
-          
-          if (allShifts.isNotEmpty) {
-            
+          if (allShifts != null && allShifts.isNotEmpty) {
             final dates = await supabase.from('shifts').select('shift_date').order('shift_date');
             final uniqueDates = (dates as List).map((d) => d['shift_date']).toSet();
-            
+            final _unique = uniqueDates;
           }
-        } catch (e) {
-          
+        } catch (probeError) {
+          final _probeErr = probeError;
         }
       }
-      
-      return List<Map<String, dynamic>>.from(response);
+
+      return List<Map<String, dynamic>>.from(response ?? []);
     } catch (e) {
-      
-      
       throw Exception('Failed to fetch shifts: $e');
     }
   }
@@ -630,15 +615,6 @@ class SupabaseService {
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       throw Exception('Failed to fetch parameters: $e');
-    }
-  }
-
-  /// Delete a parameter by id
-  Future<void> deleteParameter(String parameterId) async {
-    try {
-      await supabase.from('parameters').delete().eq('id', parameterId);
-    } catch (e) {
-      throw Exception('Failed to delete parameter $parameterId: $e');
     }
   }
 

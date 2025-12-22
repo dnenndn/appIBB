@@ -1,14 +1,16 @@
-/// Supabase Configuration
-/// 
-/// IMPORTANT: Add your Supabase credentials here
-/// You can find these in your Supabase project settings:
-/// 1. Go to https://app.supabase.com/projects
-/// 2. Select your project
-/// 3. Navigate to Settings > API
-/// 4. Copy the URL and anon key
-/// 
-/// SECURITY: Never commit real credentials to version control!
-/// Use environment variables or secure storage in production.
+/*
+  Supabase Configuration
+
+  IMPORTANT: Add your Supabase credentials here
+  You can find these in your Supabase project settings:
+  1. Go to https://app.supabase.com/projects
+  2. Select your project
+  3. Navigate to Settings > API
+  4. Copy the URL and anon key
+
+  SECURITY: Never commit real credentials to version control!
+  Use environment variables or secure storage in production.
+*/
 
 class SupabaseConfig {
   // ⚠️ TODO: Replace with your Supabase project URL

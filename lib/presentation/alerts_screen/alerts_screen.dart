@@ -1,4 +1,3 @@
-import 'package:another_flushbar/flushbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +7,7 @@ import 'dart:async';
 import '../../core/app_export.dart';
 import '../../core/services/supabase_service.dart';
 import '../../widgets/custom_bottom_bar.dart';
-import '../../widgets/custom_icon_widget.dart';
+// custom_icon_widget import is redundant via app_export
 import './widgets/alert_card.dart';
 import './widgets/alert_filter_chip.dart';
 import './widgets/alert_settings_bottom_sheet.dart';
