@@ -252,8 +252,9 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
     }
   }
 
-  void _showThresholdControls() {
-    showModalBottomSheet(
+  Future<void> _showThresholdControls() async {
+    // Await the bottom sheet result; the sheet now returns 'thresholds_saved' when Save is pressed.
+    final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -264,19 +265,16 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
         warningMax: _warningMax,
         parameterMin: _parameterMin,
         parameterMax: _parameterMax,
-     onMinChanged: (value) {
-        setState(() => _minThreshold = value);
-        _saveThresholdLocally(value, _maxThreshold);
-      },
-
-      onMaxChanged: (value) {
-        setState(() => _maxThreshold = value);
-        _saveThresholdLocally(_minThreshold, value);
-      },
-
+        onMinChanged: (value) {
+          setState(() => _minThreshold = value);
+          _saveThresholdLocally(value, _maxThreshold);
+        },
+        onMaxChanged: (value) {
+          setState(() => _maxThreshold = value);
+          _saveThresholdLocally(_minThreshold, value);
+        },
         onSave: (warningMin, warningMax, criticalMin, criticalMax) async {
           // Persist thresholds when user confirms
-         print('HHHHHHH Saving thresholds: $warningMin, $warningMax, $criticalMin, $criticalMax');
           setState(() {
             _warningMin = warningMin;
             _warningMax = warningMax;
@@ -298,12 +296,18 @@ class _ParameterTrendScreenState extends State<ParameterTrendScreen> {
               const SnackBar(content: Text('Thresholds saved')),
             );
           }
+          // Do NOT pop here; the sheet will close and return a result.
         },
         onCancel: () {
           // no-op for now
         },
       ),
     );
+
+    if (result != null && result == 'thresholds_saved') {
+      // Pop this trend screen and notify caller
+      Navigator.of(context).pop('thresholds_saved');
+    }
   }
 
   void _showExportOptions() {

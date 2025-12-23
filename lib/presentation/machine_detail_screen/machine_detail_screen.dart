@@ -91,7 +91,8 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         _monitoredFilterApplied = monitoredPref != null;
 
         // Process parameters into categories (now async) - this will calculate status correctly
-        final categorizedParams = await _organizeParametersByCategory(parameters, monitoredPref);
+        // Pass the machineId explicitly so thresholds can be fetched on first load
+        final categorizedParams = await _organizeParametersByCategory(parameters, monitoredPref, machineId);
         
         
         if (mounted) {
@@ -164,7 +165,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
   }
 
   Future<Map<String, List<Map<String, dynamic>>>> _organizeParametersByCategory(
-      List<Map<String, dynamic>> parameters, List<String>? monitoredPref) async {
+      List<Map<String, dynamic>> parameters, List<String>? monitoredPref, String machineId) async {
     final categorized = <String, List<Map<String, dynamic>>>{};
     // If user has selected monitored parameters for this machine, filter the list.
     // monitoredPref: null => no preference (show all), empty list => explicitly selected none
@@ -180,12 +181,11 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       // ignore and show all if monitor prefs fail
     }
     
-    final machineId = _machineData['id'] as String?;
     final thresholdService = LocalThresholdService();
     
     // Pre-fetch all thresholds in parallel for better performance
     final thresholdFutures = <String, Future<Map<String, double?>>>{};
-    if (machineId != null) {
+    if (machineId.isNotEmpty) {
       for (var param in parameters) {
         final parameterId = param['id'] as String?;
         final currentValue = (param['current_value'] as num?)?.toDouble();
@@ -204,7 +204,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     await Future.wait(thresholdFutures.entries.map((e) async {
       thresholdResults[e.key] = await e.value;
     }));
-    
+   
     for (var param in parameters) {
       try {
         
@@ -419,7 +419,7 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
       final warningMin = warningThresholds?['min'] ?? (criticalMin * 0.9);
       final warningMax = warningThresholds?['max'] ?? (criticalMax * 1.1);
       
-      return {
+     return {
         'criticalMin': criticalMin,
         'criticalMax': criticalMax,
         'warningMin': warningMin,
@@ -595,9 +595,9 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
     }
   }
 
-  void _handleParameterTap(Map<String, dynamic> parameter) {
+  Future<void> _handleParameterTap(Map<String, dynamic> parameter) async {
     HapticFeedback.lightImpact();
-    Navigator.pushNamed(
+    final result = await Navigator.pushNamed(
       context,
       '/parameter-trend-screen',
       arguments: {
@@ -608,6 +608,11 @@ class _MachineDetailScreenState extends State<MachineDetailScreen>
         'unit': parameter['unit'],
       },
     );
+
+    // If thresholds were saved in the trend screen, reload immediately
+    if (result != null && result == 'thresholds_saved') {
+      await _loadMachineData();
+    }
   }
 
   void _handleParameterLongPress(Map<String, dynamic> parameter) {

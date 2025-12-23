@@ -194,8 +194,8 @@ class MachineStatusCard extends StatelessWidget {
   ) {
     return Column(
       children: [
-        CustomIconWidget(
-          iconName: icon.codePoint.toRadixString(16),
+        Icon(
+          icon,
           color: AppTheme.lightTheme.colorScheme.primary,
           size: 20,
         ),

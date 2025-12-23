@@ -227,7 +227,8 @@ class _ThresholdControlSheetState extends State<ThresholdControlSheet> {
                     widget.onSave!(_warningMin, _warningMax, _criticalMin, _criticalMax);
                   }
 
-                  Navigator.of(context).pop();
+                  // Close the bottom sheet and return a sentinel result so callers know thresholds were saved
+                  Navigator.of(context).pop('thresholds_saved');
                 },
                 child: const Text('Save'),
               ),
